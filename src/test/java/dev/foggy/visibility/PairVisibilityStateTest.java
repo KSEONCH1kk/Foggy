@@ -30,4 +30,12 @@ class PairVisibilityStateTest {
         assertEquals(VisibilityTransition.NONE, state.apply(HideReason.NONE, 2));
         assertEquals(VisibilityTransition.NONE, state.apply(HideReason.OCCLUDED, 2));
     }
+
+    @Test
+    void transferredHiddenStateShowsImmediatelyAfterReload() {
+        PairVisibilityState state = new PairVisibilityState(13, true);
+        assertTrue(state.hidden());
+        assertEquals(VisibilityTransition.SHOW, state.apply(HideReason.NONE, 20));
+        assertFalse(state.hidden());
+    }
 }

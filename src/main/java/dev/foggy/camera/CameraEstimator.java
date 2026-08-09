@@ -102,6 +102,9 @@ public final class CameraEstimator {
         }
         Vector direction = offsetDirection.clone().normalize();
         Vector requestedPosition = eye.clone().add(direction.clone().multiply(requested));
+        if (!blockRaycaster.ownsTrace(world, eye, requestedPosition)) {
+            return requestedPosition;
+        }
         RayTraceResult hit = blockRaycaster.traceCollision(world, eye, requestedPosition);
         double distance = requested;
         if (hit != null && hit.getHitPosition() != null) {

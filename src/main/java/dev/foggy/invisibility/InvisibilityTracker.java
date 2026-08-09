@@ -41,47 +41,47 @@ public final class InvisibilityTracker {
     }
 
     /**
-     * Determines whether state signals retain or completely remove the client entity.
+     * Captures only target-owned state. This method must run on the target's entity scheduler.
      *
-     * @param viewer receiving player
-     * @param target tested player
-     * @return effective packet treatment
+     * @param target target owned by the current region
+     * @return immutable cross-region state
      */
-    public InvisibilityDisposition disposition(Player viewer, Player target) {
-        boolean vanillaInvisible = isConfiguredVanillaInvisible(target);
-        boolean hardHidden = (config.spectatorInvisibility() && target.getGameMode() == GameMode.SPECTATOR)
-                || (config.respectCanSee() && !viewer.canSee(target))
-                || !matchingHooks(target).isEmpty();
-        return InvisibilityDisposition.resolve(
-                vanillaInvisible, hardHidden, config.preserveVanillaInvisibleEntity());
+    public TargetInvisibilityState captureTarget(Player target) {
+        return new TargetInvisibilityState(
+                target.hasPotionEffect(PotionEffectType.INVISIBILITY),
+                target.isInvisible(),
+                target.getGameMode() == GameMode.SPECTATOR,
+                matchingHooks(target));
     }
 
     /**
-     * Captures individual state inputs for an operator diagnostic.
+     * Resolves a captured target against the viewer-owned Bukkit visibility signal.
      *
-     * @param viewer receiving player
-     * @param target tested player
-     * @return detailed state snapshot
+     * @param target captured target signals
+     * @param bukkitCanSee result of {@code viewer.canSee(target)}, or true when another region owns target
+     * @return effective packet treatment
      */
-    public InvisibilityDebugSnapshot diagnose(Player viewer, Player target) {
-        boolean potion = target.hasPotionEffect(PotionEffectType.INVISIBILITY);
-        boolean flag = target.isInvisible();
-        boolean spectator = target.getGameMode() == GameMode.SPECTATOR;
-        boolean canSee = viewer.canSee(target);
-        List<String> hooks = matchingHooks(target);
-        boolean vanillaInvisible = (config.potionInvisibility() && potion)
-                || (config.entityInvisibleFlag() && flag);
-        boolean hardHidden = (config.spectatorInvisibility() && spectator)
-                || (config.respectCanSee() && !canSee)
-                || !hooks.isEmpty();
-        InvisibilityDisposition disposition = InvisibilityDisposition.resolve(
-                vanillaInvisible, hardHidden, config.preserveVanillaInvisibleEntity());
-        return new InvisibilityDebugSnapshot(potion, flag, spectator, canSee, hooks, disposition);
+    public InvisibilityDisposition disposition(TargetInvisibilityState target, boolean bukkitCanSee) {
+        boolean vanillaInvisible = (config.potionInvisibility() && target.potionEffect())
+                || (config.entityInvisibleFlag() && target.entityInvisibleFlag());
+        boolean hardHidden = (config.spectatorInvisibility() && target.spectator())
+                || (config.respectCanSee() && !bukkitCanSee)
+                || !target.vanishHooks().isEmpty();
+        return InvisibilityDisposition.resolve(vanillaInvisible, hardHidden,
+                config.preserveVanillaInvisibleEntity());
     }
 
-    private boolean isConfiguredVanillaInvisible(Player target) {
-        return (config.potionInvisibility() && target.hasPotionEffect(PotionEffectType.INVISIBILITY))
-                || (config.entityInvisibleFlag() && target.isInvisible());
+    /**
+     * Builds pair diagnostics from region-safe captured target state.
+     *
+     * @param target captured target signals
+     * @param bukkitCanSee viewer-owned visibility signal
+     * @return detailed pair snapshot
+     */
+    public InvisibilityDebugSnapshot diagnose(TargetInvisibilityState target, boolean bukkitCanSee) {
+        return new InvisibilityDebugSnapshot(
+                target.potionEffect(), target.entityInvisibleFlag(), target.spectator(), bukkitCanSee,
+                target.vanishHooks(), disposition(target, bukkitCanSee));
     }
 
     private List<String> matchingHooks(Player target) {

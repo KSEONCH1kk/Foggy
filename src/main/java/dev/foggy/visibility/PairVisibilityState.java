@@ -19,6 +19,17 @@ public final class PairVisibilityState {
     }
 
     /**
+     * Creates state synchronized with an already active packet controller, used across live reload.
+     *
+     * @param entityId current entity id
+     * @param hidden whether the controller already suppresses this id
+     */
+    public PairVisibilityState(int entityId, boolean hidden) {
+        this.entityId = entityId;
+        this.hidden = hidden;
+    }
+
+    /**
      * Applies a decision and returns the packet-level transition, if any.
      *
      * @param reason current visibility decision

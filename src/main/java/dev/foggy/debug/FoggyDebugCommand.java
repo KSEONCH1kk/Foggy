@@ -13,13 +13,14 @@ import dev.foggy.raycast.OpticalResult;
 import dev.foggy.raycast.RayDebugLine;
 import dev.foggy.raycast.RaycastDebugSnapshot;
 import dev.foggy.visibility.PairDebugState;
+import dev.foggy.visibility.PlayerVisibilitySnapshot;
 import dev.foggy.visibility.VisibilityEngine;
 import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.format.NamedTextColor;
 import org.bukkit.Bukkit;
@@ -57,8 +58,8 @@ public final class FoggyDebugCommand implements CommandExecutor, TabCompleter {
     private final InvisibilityTracker invisibilityTracker;
     private final VisibilityEngine visibilityEngine;
     private final PacketVisibilityController packetController;
-    private final Map<UUID, DebugSession> sessions = new HashMap<>();
-    private long tick;
+    private final Map<UUID, DebugSession> sessions = new ConcurrentHashMap<>();
+    private final Map<UUID, Integer> viewerTicks = new ConcurrentHashMap<>();
 
     /**
      * Creates the operator debugger.
@@ -89,9 +90,9 @@ public final class FoggyDebugCommand implements CommandExecutor, TabCompleter {
                 sender.sendMessage(Component.text("Нет права foggy.reload.", NamedTextColor.RED));
                 return true;
             }
-            FoggyPlugin.ReloadResult result = plugin.reloadRuntime();
-            sender.sendMessage(Component.text("[Foggy] " + result.message(),
-                    result.success() ? NamedTextColor.GREEN : NamedTextColor.RED));
+            plugin.reloadRuntime(result -> sendReloadResult(sender, result));
+            sender.sendMessage(Component.text("[Foggy] reload запланирован на global region.",
+                    NamedTextColor.YELLOW));
             return true;
         }
         if (!(sender instanceof Player viewer)) {
@@ -107,7 +108,7 @@ public final class FoggyDebugCommand implements CommandExecutor, TabCompleter {
             return true;
         }
         if (args.length == 1 || args[1].equalsIgnoreCase("on")) {
-            Player target = nearestTarget(viewer);
+            PlayerVisibilitySnapshot target = nearestTarget(viewer);
             if (target == null) {
                 viewer.sendMessage(Component.text("Рядом нет другого игрока; укажи /" + label
                         + " debug <ник>.", NamedTextColor.RED));
@@ -125,7 +126,8 @@ public final class FoggyDebugCommand implements CommandExecutor, TabCompleter {
         }
         if (action.equals("status")) {
             DebugSession session = sessions.get(viewer.getUniqueId());
-            Player target = session == null ? nearestTarget(viewer) : Bukkit.getPlayer(session.targetId());
+            PlayerVisibilitySnapshot target = session == null
+                    ? nearestTarget(viewer) : visibilityEngine.snapshot(session.targetId());
             if (target == null) {
                 viewer.sendMessage(Component.text("Debug target недоступен.", NamedTextColor.RED));
             } else {
@@ -138,8 +140,10 @@ public final class FoggyDebugCommand implements CommandExecutor, TabCompleter {
             return true;
         }
         String targetName = action.equals("target") && args.length >= 3 ? args[2] : args[1];
-        Player target = Bukkit.getPlayerExact(targetName);
-        if (target == null || target == viewer) {
+        PlayerVisibilitySnapshot target = visibilityEngine.snapshots().stream()
+                .filter(candidate -> candidate.name().equalsIgnoreCase(targetName))
+                .findFirst().orElse(null);
+        if (target == null || target.playerId().equals(viewer.getUniqueId())) {
             viewer.sendMessage(Component.text("Игрок '" + targetName + "' не найден или это ты сам.", NamedTextColor.RED));
             return true;
         }
@@ -147,40 +151,40 @@ public final class FoggyDebugCommand implements CommandExecutor, TabCompleter {
         return true;
     }
 
-    /** Updates active action bars and particle overlays after the visibility engine tick. */
-    public void tick() {
-        tick++;
-        if (tick % UPDATE_INTERVAL_TICKS != 0) {
+    /**
+     * Updates one viewer's action bar and particles on that viewer's owning entity scheduler.
+     *
+     * @param viewer region-owned debug viewer
+     */
+    public void tickViewer(Player viewer) {
+        DebugSession session = sessions.get(viewer.getUniqueId());
+        if (session == null) {
             return;
         }
-        for (Map.Entry<UUID, DebugSession> entry : List.copyOf(sessions.entrySet())) {
-            Player viewer = Bukkit.getPlayer(entry.getKey());
-            Player target = Bukkit.getPlayer(entry.getValue().targetId());
-            if (viewer == null || target == null) {
-                sessions.remove(entry.getKey());
-                continue;
-            }
-            if (viewer.getWorld() != target.getWorld()) {
-                viewer.sendActionBar(Component.text("Foggy debug: target в другом мире", NamedTextColor.RED));
-                continue;
-            }
-            DebugFrame frame = capture(viewer, target);
-            viewer.sendActionBar(actionBar(frame));
-            if (entry.getValue().particles()) {
-                renderParticles(viewer, frame.optical());
-            }
+        int currentTick = viewerTicks.merge(viewer.getUniqueId(), 1, Integer::sum);
+        if (currentTick % UPDATE_INTERVAL_TICKS != 0) {
+            return;
+        }
+        PlayerVisibilitySnapshot target = visibilityEngine.snapshot(session.targetId());
+        if (target == null) {
+            sessions.remove(viewer.getUniqueId());
+            return;
+        }
+        if (!viewer.getWorld().getUID().equals(target.worldId())) {
+            viewer.sendActionBar(Component.text("Foggy debug: target в другом мире", NamedTextColor.RED));
+            return;
+        }
+        DebugFrame frame = capture(viewer, target);
+        viewer.sendActionBar(actionBar(frame));
+        if (session.particles()) {
+            renderParticles(viewer, frame.optical());
         }
     }
 
     /** Clears all sessions during plugin shutdown. */
     public void shutdown() {
-        for (UUID viewerId : sessions.keySet()) {
-            Player viewer = Bukkit.getPlayer(viewerId);
-            if (viewer != null) {
-                viewer.sendActionBar(Component.empty());
-            }
-        }
         sessions.clear();
+        viewerTicks.clear();
     }
 
     /**
@@ -190,6 +194,7 @@ public final class FoggyDebugCommand implements CommandExecutor, TabCompleter {
      */
     public void remove(Player player) {
         sessions.remove(player.getUniqueId());
+        viewerTicks.remove(player.getUniqueId());
         sessions.entrySet().removeIf(entry -> entry.getValue().targetId().equals(player.getUniqueId()));
     }
 
@@ -208,7 +213,7 @@ public final class FoggyDebugCommand implements CommandExecutor, TabCompleter {
         }
         if (args.length == 2 && args[0].equalsIgnoreCase("debug")) {
             List<String> options = new ArrayList<>(List.of("on", "off", "status", "particles", "target"));
-            Bukkit.getOnlinePlayers().stream().map(Player::getName).forEach(options::add);
+            visibilityEngine.snapshots().stream().map(PlayerVisibilitySnapshot::name).forEach(options::add);
             return prefix(options, args[1]);
         }
         if (args.length == 3 && args[0].equalsIgnoreCase("debug")) {
@@ -216,15 +221,16 @@ public final class FoggyDebugCommand implements CommandExecutor, TabCompleter {
                 return prefix(List.of("on", "off"), args[2]);
             }
             if (args[1].equalsIgnoreCase("target")) {
-                return prefix(Bukkit.getOnlinePlayers().stream().map(Player::getName).toList(), args[2]);
+                return prefix(visibilityEngine.snapshots().stream().map(PlayerVisibilitySnapshot::name).toList(), args[2]);
             }
         }
         return List.of();
     }
 
-    private void start(Player viewer, Player target) {
-        sessions.put(viewer.getUniqueId(), new DebugSession(target.getUniqueId(), true));
-        viewer.sendMessage(Component.text("Foggy debug → " + target.getName(), NamedTextColor.AQUA));
+    private void start(Player viewer, PlayerVisibilitySnapshot target) {
+        sessions.put(viewer.getUniqueId(), new DebugSession(target.playerId(), true));
+        viewerTicks.put(viewer.getUniqueId(), 0);
+        viewer.sendMessage(Component.text("Foggy debug → " + target.name(), NamedTextColor.AQUA));
         viewer.sendMessage(Component.text(
                 "Частицы: синие/голубые=камеры, серые/красные/зелёные=hitbox, "
                         + "красные лучи=block hit, оранжевый=точка блока, фиолетовый=прозрачный проход, "
@@ -244,8 +250,8 @@ public final class FoggyDebugCommand implements CommandExecutor, TabCompleter {
         viewer.sendMessage(Component.text("Debug particles: " + enabled, NamedTextColor.YELLOW));
     }
 
-    private void showDetailed(Player viewer, Player target, boolean renderNow) {
-        if (viewer.getWorld() != target.getWorld()) {
+    private void showDetailed(Player viewer, PlayerVisibilitySnapshot target, boolean renderNow) {
+        if (!viewer.getWorld().getUID().equals(target.worldId())) {
             viewer.sendMessage(Component.text("Target в другом мире.", NamedTextColor.RED));
             return;
         }
@@ -258,8 +264,9 @@ public final class FoggyDebugCommand implements CommandExecutor, TabCompleter {
         double minFov = optical.cameras().stream().mapToDouble(CameraPose::verticalFovDegrees).min().orElse(0.0);
         double maxFov = optical.cameras().stream().mapToDouble(CameraPose::verticalFovDegrees).max().orElse(0.0);
 
-        line(viewer, "target=" + target.getName() + " distance=" + decimal(viewer.getLocation().distance(target.getLocation()))
-                + " entityId=" + target.getEntityId(), NamedTextColor.AQUA);
+        line(viewer, "target=" + target.name() + " distance="
+                + decimal(viewer.getLocation().toVector().distance(target.position()))
+                + " entityId=" + target.entityId(), NamedTextColor.AQUA);
         line(viewer, "FINAL=" + finalReason(frame) + " engineReason=" + engine.reason()
                 + " managed=" + engine.managed() + " hidden=" + engine.hidden()
                 + " debounce=" + engine.pendingHideTicks(), frame.bypass() ? NamedTextColor.RED : NamedTextColor.YELLOW);
@@ -290,31 +297,34 @@ public final class FoggyDebugCommand implements CommandExecutor, TabCompleter {
         if (frame.bypass()) {
             line(viewer, "! foggy.bypass=true: этот viewer никогда не будет скрывать игроков.", NamedTextColor.RED);
         } else if (!engine.managed()) {
-            line(viewer, "! Пара вне visibility.radius-blocks или ещё не обработана tick-end.", NamedTextColor.RED);
+            line(viewer, "! Пара вне visibility.radius-blocks или ещё не обработана entity tick.", NamedTextColor.RED);
         } else if (optical.result() == OpticalResult.VISIBLE && optical.decisiveRay() != null) {
             CameraPose decisiveCamera = optical.cameras().get(optical.decisiveCameraIndex());
             line(viewer, "VISIBLE ray: camera=" + decisiveCamera.source()
                     + " pos=" + vector(decisiveCamera.position())
                     + " -> target=" + vector(optical.decisiveRay().to()), NamedTextColor.GREEN);
         }
-        if (renderNow && sessions.getOrDefault(viewer.getUniqueId(), new DebugSession(target.getUniqueId(), true)).particles()) {
+        if (renderNow && sessions.getOrDefault(
+                viewer.getUniqueId(), new DebugSession(target.playerId(), true)).particles()) {
             renderParticles(viewer, optical);
         }
     }
 
-    private DebugFrame capture(Player viewer, Player target) {
+    private DebugFrame capture(Player viewer, PlayerVisibilitySnapshot target) {
         List<CameraPose> cameras = cameraEstimator.estimate(viewer);
+        boolean canSee = !Bukkit.isOwnedByCurrentRegion(target.playerHandle())
+                || viewer.canSee(target.playerHandle());
         return new DebugFrame(
                 target,
                 viewer.hasPermission("foggy.bypass"),
-                invisibilityTracker.diagnose(viewer, target),
+                invisibilityTracker.diagnose(target.invisibility(), canSee),
                 raycastService.diagnose(target, cameras),
-                visibilityEngine.inspect(viewer, target),
+                visibilityEngine.inspect(viewer.getUniqueId(), target),
                 packetController.inspect(viewer, target));
     }
 
     private static Component actionBar(DebugFrame frame) {
-        String text = "Foggy→" + frame.target().getName()
+        String text = "Foggy→" + frame.target().name()
                 + " final=" + finalReason(frame)
                 + " optical=" + frame.optical().result()
                 + " hidden=" + frame.engine().hidden() + "/" + frame.packet().hiddenId()
@@ -340,7 +350,7 @@ public final class FoggyDebugCommand implements CommandExecutor, TabCompleter {
             particle(viewer, camera.position(), camera.companionExact() ? CAMERA_EXACT : CAMERA_FALLBACK);
         }
         Particle.DustOptions targetColor = switch (snapshot.result()) {
-            case VISIBLE -> TARGET_OUTSIDE;
+            case VISIBLE, REGION_UNOWNED -> TARGET_OUTSIDE;
             case OCCLUDED -> TARGET_BLOCKED;
             case OUTSIDE_FOV -> TARGET_OUTSIDE;
         };
@@ -468,6 +478,16 @@ public final class FoggyDebugCommand implements CommandExecutor, TabCompleter {
         return new Particle.DustOptions(Color.fromRGB(red, green, blue), size);
     }
 
+    private void sendReloadResult(CommandSender sender, FoggyPlugin.ReloadResult result) {
+        Component message = Component.text("[Foggy] " + result.message(),
+                result.success() ? NamedTextColor.GREEN : NamedTextColor.RED);
+        if (sender instanceof Player player) {
+            player.getScheduler().run(plugin, ignored -> player.sendMessage(message), null);
+        } else {
+            sender.sendMessage(message);
+        }
+    }
+
     private static void line(Player player, String message, NamedTextColor color) {
         player.sendMessage(Component.text("[Foggy] " + message, color));
     }
@@ -482,12 +502,15 @@ public final class FoggyDebugCommand implements CommandExecutor, TabCompleter {
         }
     }
 
-    private static @Nullable Player nearestTarget(Player viewer) {
-        return viewer.getWorld().getPlayers().stream()
-                .filter(candidate -> candidate != viewer)
+    private @Nullable PlayerVisibilitySnapshot nearestTarget(Player viewer) {
+        Vector viewerPosition = viewer.getLocation().toVector();
+        UUID viewerWorld = viewer.getWorld().getUID();
+        return visibilityEngine.snapshots().stream()
+                .filter(candidate -> !candidate.playerId().equals(viewer.getUniqueId()))
+                .filter(candidate -> candidate.worldId().equals(viewerWorld))
                 .min((left, right) -> Double.compare(
-                        left.getLocation().distanceSquared(viewer.getLocation()),
-                        right.getLocation().distanceSquared(viewer.getLocation())))
+                        left.position().distanceSquared(viewerPosition),
+                        right.position().distanceSquared(viewerPosition)))
                 .orElse(null);
     }
 
@@ -505,7 +528,7 @@ public final class FoggyDebugCommand implements CommandExecutor, TabCompleter {
     }
 
     private record DebugFrame(
-            Player target,
+            PlayerVisibilitySnapshot target,
             boolean bypass,
             InvisibilityDebugSnapshot invisibility,
             RaycastDebugSnapshot optical,

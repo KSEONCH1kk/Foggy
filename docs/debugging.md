@@ -20,7 +20,7 @@ Debug работает от лица наблюдателя: войдите те
 | Поле | Значение |
 |---|---|
 | `FINAL` | Верхнеуровневая причина: `INVISIBLE` означает только hard hide (vanish/spectator), не `VANILLA_ENTITY` |
-| `engineReason` | Решение, сохранённое VisibilityEngine на последнем tick-end |
+| `engineReason` | Решение, сохранённое VisibilityEngine на последнем entity-owned tick |
 | `managed` | Пара находится в одном мире и внутри `visibility.radius-blocks` |
 | `hidden` | Engine уже выполнил переход visible → hidden |
 | `debounce` | Сколько последовательных optical-hide подтверждений накоплено |
@@ -89,3 +89,5 @@ VISIBLE ray: camera=FALLBACK:THIRD_BACK#... pos=(...) -> target=(...)
    `/foggy debug status` и лог PacketEvents.
 6. `paperTracked=false`: Paper сам не отправляет эту сущность viewer; `clientKnown=false` в таком
    состоянии нормален.
+7. `optical=REGION_UNOWNED`: текущий Folia region не владеет всем коридором луча. Foggy намеренно
+   оставляет цель видимой, чтобы не читать чужие chunks с неправильного tick thread.

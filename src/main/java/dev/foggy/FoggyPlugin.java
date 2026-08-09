@@ -10,18 +10,19 @@ import dev.foggy.listener.FoggyListener;
 import dev.foggy.packet.FoggyPacketListener;
 import dev.foggy.packet.PacketVisibilityController;
 import dev.foggy.raycast.BukkitRaycastService;
-import dev.foggy.raycast.MotionTracker;
 import dev.foggy.raycast.TargetPointSampler;
 import dev.foggy.raycast.VanillaBlockRaycaster;
 import dev.foggy.visibility.VisibilityEngine;
 import org.bukkit.command.PluginCommand;
 import org.bukkit.event.HandlerList;
 import org.bukkit.plugin.java.JavaPlugin;
+import java.util.function.Consumer;
 import java.util.logging.Level;
 
-/** Paper entry point for Foggy. */
+/** Paper/Folia entry point for Foggy. */
 public final class FoggyPlugin extends JavaPlugin {
     private FoggyPacketListener packetListener;
+    private PacketVisibilityController packetController;
     private VisibilityEngine visibilityEngine;
     private CompanionCameraRegistry companion;
     private FoggyDebugCommand debugCommand;
@@ -49,17 +50,17 @@ public final class FoggyPlugin extends JavaPlugin {
             startRuntime(settings);
         } catch (RuntimeException exception) {
             getLogger().log(Level.SEVERE, "Could not start Foggy runtime", exception);
-            stopRuntime();
+            stopRuntime(false);
             getServer().getPluginManager().disablePlugin(this);
             return;
         }
         getLogger().info("Foggy " + getPluginMeta().getVersion()
-                + " enabled for Paper 1.21.4 / PacketEvents 2.13.0");
+                + " enabled for Paper/Folia 1.21.4 / PacketEvents 2.13.0");
     }
 
     @Override
     public void onDisable() {
-        stopRuntime();
+        stopRuntime(false);
         activeSettings = null;
     }
 
@@ -68,13 +69,13 @@ public final class FoggyPlugin extends JavaPlugin {
      * The currently active runtime is left untouched when validation fails. If starting the new
      * runtime fails, Foggy attempts to reconstruct the previous one before returning an error.
      *
-     * @return reload outcome suitable for displaying to a command sender
+     * @param callback receives the reload outcome on the global region
      */
-    public ReloadResult reloadRuntime() {
-        if (!getServer().isPrimaryThread()) {
-            return new ReloadResult(false, "reload разрешён только в основном потоке сервера");
-        }
+    public void reloadRuntime(Consumer<ReloadResult> callback) {
+        getServer().getGlobalRegionScheduler().execute(this, () -> callback.accept(reloadRuntimeNow()));
+    }
 
+    private ReloadResult reloadRuntimeNow() {
         final FoggyConfig candidate;
         try {
             reloadConfig();
@@ -85,10 +86,9 @@ public final class FoggyPlugin extends JavaPlugin {
         }
 
         FoggyConfig previous = activeSettings;
-        stopRuntime();
+        stopRuntime(true);
         try {
             startRuntime(candidate);
-            visibilityEngine.tick();
             getLogger().info("Configuration reloaded successfully");
             return new ReloadResult(true,
                     "конфиг перезагружен: radius=" + candidate.visibilityRadius()
@@ -97,11 +97,10 @@ public final class FoggyPlugin extends JavaPlugin {
                             + ", cutout=" + candidate.cutoutBlockMode());
         } catch (RuntimeException exception) {
             getLogger().log(Level.SEVERE, "Could not start runtime from reloaded config", exception);
-            stopRuntime();
+            stopRuntime(true);
             if (previous != null) {
                 try {
                     startRuntime(previous);
-                    visibilityEngine.tick();
                     return new ReloadResult(false,
                             "новый конфиг не запущен; предыдущая конфигурация восстановлена. Причина: "
                                     + exception.getMessage());
@@ -124,23 +123,26 @@ public final class FoggyPlugin extends JavaPlugin {
             getServer().getMessenger().registerOutgoingPluginChannel(this, companionChannel);
         }
 
-        MotionTracker motionTracker = new MotionTracker();
-        TargetPointSampler pointSampler = new TargetPointSampler(settings, motionTracker);
-        PacketVisibilityController packetController = new PacketVisibilityController(getLogger());
+        TargetPointSampler pointSampler = new TargetPointSampler(settings);
+        if (packetController == null) {
+            packetController = new PacketVisibilityController(this, getLogger());
+        }
         VanillaBlockRaycaster blockRaycaster = new VanillaBlockRaycaster(settings);
         CameraEstimator cameraEstimator = new CameraEstimator(settings, companion, blockRaycaster);
-        BukkitRaycastService raycastService = new BukkitRaycastService(settings, pointSampler, blockRaycaster);
+        BukkitRaycastService raycastService = new BukkitRaycastService(settings, blockRaycaster);
         InvisibilityTracker invisibilityTracker = new InvisibilityTracker(settings, getLogger());
         visibilityEngine = new VisibilityEngine(
+                this,
                 settings,
                 cameraEstimator,
                 raycastService,
                 invisibilityTracker,
                 packetController,
-                motionTracker);
+                pointSampler);
 
         debugCommand = new FoggyDebugCommand(
                 this, cameraEstimator, raycastService, invisibilityTracker, visibilityEngine, packetController);
+        visibilityEngine.setViewerTickHook(debugCommand::tickViewer);
         PluginCommand foggyCommand = getCommand("foggy");
         if (foggyCommand == null) {
             throw new IllegalStateException("Command 'foggy' is missing from plugin.yml");
@@ -148,29 +150,38 @@ public final class FoggyPlugin extends JavaPlugin {
         foggyCommand.setExecutor(debugCommand);
         foggyCommand.setTabCompleter(debugCommand);
 
-        packetListener = new FoggyPacketListener(packetController);
-        PacketEvents.getAPI().getEventManager().registerListener(packetListener);
+        if (packetListener == null) {
+            packetListener = new FoggyPacketListener(packetController);
+            PacketEvents.getAPI().getEventManager().registerListener(packetListener);
+        }
         bukkitListener = new FoggyListener(visibilityEngine, companion, debugCommand);
         getServer().getPluginManager().registerEvents(bukkitListener, this);
+        visibilityEngine.start(getServer().getOnlinePlayers());
         activeSettings = settings;
     }
 
-    private void stopRuntime() {
+    private void stopRuntime(boolean preservePacketState) {
         if (bukkitListener != null) {
             HandlerList.unregisterAll(bukkitListener);
             bukkitListener = null;
         }
         if (visibilityEngine != null) {
-            visibilityEngine.shutdown();
+            visibilityEngine.shutdown(!preservePacketState);
             visibilityEngine = null;
         }
         if (debugCommand != null) {
             debugCommand.shutdown();
             debugCommand = null;
         }
-        if (packetListener != null && PacketEvents.getAPI() != null) {
-            PacketEvents.getAPI().getEventManager().unregisterListener(packetListener);
-            packetListener = null;
+        if (!preservePacketState) {
+            if (packetListener != null && PacketEvents.getAPI() != null) {
+                PacketEvents.getAPI().getEventManager().unregisterListener(packetListener);
+                packetListener = null;
+            }
+            if (packetController != null) {
+                packetController.clear();
+            }
+            packetController = null;
         }
         if (companion != null) {
             companion.clear();

@@ -1,6 +1,6 @@
 # Foggy
 
-Foggy is a per-viewer player visibility plugin for **Paper 1.21.4**, **Java 21** and
+Foggy is a per-viewer player visibility plugin for **Paper/Folia 1.21.4**, **Java 21** and
 **PacketEvents 2.13.0**. It never calls `Player#hidePlayer`: client entities are removed and
 restored through PacketEvents packets for one viewer at a time.
 
@@ -10,7 +10,7 @@ restored through PacketEvents packets for one viewer at a time.
   occluded by complete block-state OUTLINE voxel shapes;
 - keeps ordinary potion/metadata-invisible entities client-side so vanilla can render their
   armor and held items and retain attack interaction while hiding the player body;
-- evaluates every directed nearby pair at `ServerTickEndEvent`, after the tick's movement;
+- evaluates every directed nearby pair from the viewer's repeating `EntityScheduler` task;
 - restores visibility without show-side debounce by sending `SpawnEntity` plus current metadata,
   scale, equipment, potion effects, head rotation, velocity and passenger state in one flush;
 - models partial-tick target motion using previous/current hitboxes;
@@ -19,14 +19,16 @@ restored through PacketEvents packets for one viewer at a time.
 
 ## Installation
 
-1. Run Paper 1.21.4 on Java 21.
+1. Run Paper or Folia 1.21.4 on Java 21.
 2. Install the standalone PacketEvents 2.13.0 Spigot plugin.
-3. Copy `Foggy-1.0.1.jar` to `plugins/`.
+3. Copy `Foggy-1.1.0.jar` to `plugins/`.
 4. Start once, edit `plugins/Foggy/config.yml`, then run `/foggy reload` or restart.
 
-PacketEvents is a hard dependency (`depend: [packetevents]`). Foggy is intentionally marked as
-not Folia-compatible because its world raycasts and global pair matrix require a single Paper tick
-thread.
+PacketEvents is a hard dependency (`depend: [packetevents]`). Foggy declares
+`folia-supported: true`; it has no Bukkit global-tick task. Player state is captured by that
+player's `EntityScheduler`, global reload/lifecycle work uses `GlobalRegionScheduler`, and only
+immutable snapshots cross region boundaries. See [`docs/folia.md`](docs/folia.md) for the ownership
+model and conservative cross-region ray fallback.
 
 ## Build
 
@@ -35,7 +37,7 @@ thread.
 ./gradlew loadTest
 ```
 
-The distributable is `build/libs/Foggy-1.0.1.jar`. PacketEvents and Paper are `compileOnly` and are
+The distributable is `build/libs/Foggy-1.1.0.jar`. PacketEvents and Paper are `compileOnly` and are
 not shaded into it.
 
 ## Configuration
@@ -88,10 +90,11 @@ union of first-person, rear-F5 and front-F5 possibilities. This avoids false hid
 a target that the current camera could not actually see. Exact telemetry requires the optional
 companion protocol described in [`docs/companion-protocol.md`](docs/companion-protocol.md).
 
-“The same render frame” cannot be guaranteed by any server-only 20 TPS plugin. Foggy's precise
-guarantee is: the decision and destroy/spawn packet are produced in the same **server tick** in
-which Paper's end-of-tick state is observed. Network latency, client packet processing and render
-frames remain outside the server's control.
+“The same render frame” cannot be guaranteed by any server-only 20 TPS plugin. On Paper, and for
+players owned by the same Folia region, the decision and destroy packet are produced in the same
+region tick in which Foggy samples the state. A cross-region show needs a target-owned snapshot and
+then a viewer-owned send, so scheduler hand-off can add a region tick. Network latency, client
+packet processing and render frames remain outside the server's control.
 
 Foggy uses Paper's filtered `World#rayTraceBlocks` overload with
 `ignorePassableBlocks=false`. In Paper 1.21.4 this maps directly to Minecraft
@@ -123,11 +126,18 @@ Foggy preserves the vanilla player-info/tab entry while an entity is destroyed. 
 that independently removes or rewrites that entry can prevent the client from accepting the later
 player spawn. `Player#canSee` is read as an interoperability signal, but Foggy never mutates it.
 
+On Folia, a ray is executed only when the viewer's current region owns every chunk in its corridor.
+If a configured visibility radius crosses an independently ticking region boundary, Foggy returns
+`REGION_UNOWNED` and keeps the target visible instead of reading foreign chunks or guessing that a
+wall exists. Nearby tracker pairs are normally region-co-located, but this conservative fallback is
+part of the safety contract and is visible in `/foggy debug status`.
+
 ## Reports and tests
 
 - [`docs/stage-1-vanilla-analysis.md`](docs/stage-1-vanilla-analysis.md) — Mojang artifact hashes,
   exact 1.21.4 signatures and render/raycast formulas.
 - [`docs/stage-2-packetevents.md`](docs/stage-2-packetevents.md) — PacketEvents API and complexity.
+- [`docs/folia.md`](docs/folia.md) — scheduler ownership, cross-region snapshots and limitations.
 - [`docs/testing.md`](docs/testing.md) — automated/load/manual verification.
 
 ## License

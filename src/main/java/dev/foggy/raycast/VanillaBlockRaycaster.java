@@ -2,6 +2,7 @@ package dev.foggy.raycast;
 
 import dev.foggy.config.FoggyConfig;
 import io.papermc.paper.math.Position;
+import org.bukkit.Bukkit;
 import org.bukkit.FluidCollisionMode;
 import org.bukkit.World;
 import org.bukkit.block.Block;
@@ -77,6 +78,22 @@ public final class VanillaBlockRaycaster {
     }
 
     /**
+     * Proves that the current Paper/Folia tick thread owns every chunk touched by a segment.
+     *
+     * @param world ray world
+     * @param from segment start
+     * @param to segment end
+     * @return whether world access for the complete segment is legal on the current thread
+     */
+    public boolean ownsTrace(World world, Vector from, Vector to) {
+        int minChunkX = Math.min(blockToChunk(from.getX()), blockToChunk(to.getX()));
+        int maxChunkX = Math.max(blockToChunk(from.getX()), blockToChunk(to.getX()));
+        int minChunkZ = Math.min(blockToChunk(from.getZ()), blockToChunk(to.getZ()));
+        int maxChunkZ = Math.max(blockToChunk(from.getZ()), blockToChunk(to.getZ()));
+        return Bukkit.isOwnedByCurrentRegion(world, minChunkX, minChunkZ, maxChunkX, maxChunkZ);
+    }
+
+    /**
      * Builds an allocation-heavy description for operator diagnostics.
      *
      * @param result Bukkit ray result
@@ -110,5 +127,9 @@ public final class VanillaBlockRaycaster {
         Position start = from.toLocation(world);
         return world.rayTraceBlocks(start, delta.multiply(1.0 / distance), distance,
                 FluidCollisionMode.NEVER, false, predicate);
+    }
+
+    private static int blockToChunk(double coordinate) {
+        return ((int) Math.floor(coordinate)) >> 4;
     }
 }

@@ -1,4 +1,4 @@
-# Foggy targets Paper 1.21.4 and Java 21. PacketEvents 2.13.0 is required.
+# Foggy targets Paper/Folia 1.21.4 and Java 21. PacketEvents 2.13.0 is required.
 visibility:
   radius-blocks: 128.0
   spatial-cell-size: 16

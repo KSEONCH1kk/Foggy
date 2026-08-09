@@ -55,15 +55,18 @@ entry, interoperability must be handled with that plugin.
 ## State and race handling
 
 Each viewer has concurrent sets of hidden, server-tracked and client-known entity ids. The engine
-touches them on the Paper main thread; PacketEvents may read/update them on a Netty thread. A spawn
-that races after a hidden decision is cancelled. A later visible decision clears the hidden bit
-before silently sending the complete snapshot.
+touches them on the viewer's Paper/Folia entity thread; PacketEvents may read/update them on a Netty
+thread. A spawn that races after a hidden decision is cancelled. A later visible decision clears
+the hidden bit before silently sending the complete snapshot. A cross-region reappearance first
+captures metadata/equipment/effects on the target's `EntityScheduler`, then switches to the
+viewer's `EntityScheduler` for the packet flush.
 
 ## Complexity and performance
 
 A naive global pair matrix performs `n(n-1)` decisions and several rays per decision each tick.
-Foggy rebuilds a uniform spatial hash in O(n) and queries only players within the configured
-radius. If the average nearby population is `k`, pair work is O(n·k), with O(n·k) cached state.
+Foggy publishes one immutable snapshot per player into a concurrent uniform spatial hash and each
+viewer queries only cells within the configured radius. If the average nearby population is `k`,
+pair work is O(n·k), with O(n·k) cached state and no cross-region Bukkit entity reads.
 
 The expensive ray phase has early exits:
 

@@ -7,5 +7,7 @@ public enum OpticalResult {
     /** No target sample lies in any plausible view frustum. */
     OUTSIDE_FOV,
     /** Target samples are in-frustum but every ray is blocked. */
-    OCCLUDED
+    OCCLUDED,
+    /** The current Folia region does not own the complete ray corridor; target stays visible. */
+    REGION_UNOWNED
 }

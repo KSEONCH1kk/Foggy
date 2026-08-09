@@ -1,6 +1,5 @@
 package dev.foggy.listener;
 
-import com.destroystokyo.paper.event.server.ServerTickEndEvent;
 import dev.foggy.camera.CompanionCameraRegistry;
 import dev.foggy.debug.FoggyDebugCommand;
 import dev.foggy.visibility.VisibilityEngine;
@@ -13,8 +12,9 @@ import org.bukkit.event.player.PlayerChangedWorldEvent;
 import org.bukkit.event.player.PlayerGameModeChangeEvent;
 import org.bukkit.event.player.PlayerJoinEvent;
 import org.bukkit.event.player.PlayerQuitEvent;
+import org.bukkit.event.player.PlayerRespawnEvent;
 
-/** Bridges Paper lifecycle/discrete-state events to the end-of-tick visibility engine. */
+/** Bridges region-owned player lifecycle events to the entity-scheduled visibility engine. */
 public final class FoggyListener implements Listener {
     private final VisibilityEngine visibilityEngine;
     private final CompanionCameraRegistry companion;
@@ -35,24 +35,13 @@ public final class FoggyListener implements Listener {
     }
 
     /**
-     * Evaluates after movement and world changes have been applied for this server tick.
-     *
-     * @param event Paper tick-end event
-     */
-    @EventHandler
-    public void onTickEnd(ServerTickEndEvent event) {
-        visibilityEngine.tick();
-        debugCommand.tick();
-    }
-
-    /**
      * Pre-arms pair state before normal tracker spawn packets are flushed.
      *
      * @param event player join event
      */
     @EventHandler(priority = EventPriority.MONITOR)
     public void onJoin(PlayerJoinEvent event) {
-        visibilityEngine.recomputePlayer(event.getPlayer());
+        visibilityEngine.track(event.getPlayer());
     }
 
     /**
@@ -68,24 +57,35 @@ public final class FoggyListener implements Listener {
     }
 
     /**
-     * Re-evaluates the new world's pairs; the regular tick pass releases stale old-world pairs.
+     * Rebinds the repeating task to the post-respawn entity scheduler.
+     *
+     * @param event completed player respawn
+     */
+    @EventHandler(priority = EventPriority.MONITOR)
+    public void onRespawn(PlayerRespawnEvent event) {
+        visibilityEngine.retrack(event.getPlayer());
+    }
+
+    /**
+     * Re-evaluates the new world's pairs; the regular entity task releases stale old-world pairs.
      *
      * @param event completed world-change event
      */
     @EventHandler(priority = EventPriority.MONITOR)
     public void onWorldChange(PlayerChangedWorldEvent event) {
-        visibilityEngine.recomputePlayer(event.getPlayer());
+        visibilityEngine.refresh(event.getPlayer());
     }
 
     /**
-     * Immediately hides players entering spectator; leaving is shown at this same tick's end.
+     * Requests a region-owned refresh when a player enters spectator. The repeating entity task
+     * observes the committed game mode no later than the following region tick.
      *
      * @param event game-mode transition
      */
     @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
     public void onGameMode(PlayerGameModeChangeEvent event) {
         if (event.getNewGameMode() == GameMode.SPECTATOR) {
-            visibilityEngine.recomputeTarget(event.getPlayer(), true);
+            visibilityEngine.refresh(event.getPlayer());
         }
     }
 }

@@ -2,12 +2,8 @@ package dev.foggy.packet;
 
 import com.github.retrooper.packetevents.PacketEvents;
 import com.github.retrooper.packetevents.manager.player.PlayerManager;
-import com.github.retrooper.packetevents.protocol.attribute.Attributes;
 import com.github.retrooper.packetevents.protocol.entity.type.EntityTypes;
-import com.github.retrooper.packetevents.protocol.player.Equipment;
-import com.github.retrooper.packetevents.protocol.player.EquipmentSlot;
-import com.github.retrooper.packetevents.protocol.potion.PotionType;
-import com.github.retrooper.packetevents.util.Vector3d;
+import dev.foggy.visibility.PlayerVisibilitySnapshot;
 import com.github.retrooper.packetevents.wrapper.play.server.WrapperPlayServerDestroyEntities;
 import com.github.retrooper.packetevents.wrapper.play.server.WrapperPlayServerEntityEffect;
 import com.github.retrooper.packetevents.wrapper.play.server.WrapperPlayServerEntityEquipment;
@@ -17,8 +13,6 @@ import com.github.retrooper.packetevents.wrapper.play.server.WrapperPlayServerEn
 import com.github.retrooper.packetevents.wrapper.play.server.WrapperPlayServerSetPassengers;
 import com.github.retrooper.packetevents.wrapper.play.server.WrapperPlayServerSpawnEntity;
 import com.github.retrooper.packetevents.wrapper.play.server.WrapperPlayServerUpdateAttributes;
-import java.util.ArrayList;
-import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -26,14 +20,9 @@ import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.logging.Level;
 import java.util.logging.Logger;
-import io.github.retrooper.packetevents.util.SpigotConversionUtil;
-import org.bukkit.attribute.Attribute;
-import org.bukkit.attribute.AttributeInstance;
-import org.bukkit.entity.Entity;
+import org.bukkit.Bukkit;
 import org.bukkit.entity.Player;
-import org.bukkit.inventory.PlayerInventory;
-import org.bukkit.potion.PotionEffect;
-import org.bukkit.util.Vector;
+import org.bukkit.plugin.Plugin;
 
 /**
  * Applies directed visibility decisions exclusively with PacketEvents packets.
@@ -44,15 +33,18 @@ import org.bukkit.util.Vector;
  * listener while ordinary server updates to hidden ids are cancelled per viewer.</p>
  */
 public final class PacketVisibilityController {
+    private final Plugin plugin;
     private final Logger logger;
     private final Map<UUID, ViewerPacketState> viewers = new ConcurrentHashMap<>();
 
     /**
      * Creates a controller.
      *
+     * @param plugin scheduler owner
      * @param logger plugin logger
      */
-    public PacketVisibilityController(Logger logger) {
+    public PacketVisibilityController(Plugin plugin, Logger logger) {
+        this.plugin = plugin;
         this.logger = logger;
     }
 
@@ -60,13 +52,13 @@ public final class PacketVisibilityController {
      * Hides a currently tracked target, or pre-arms cancellation for its future spawn.
      *
      * @param viewer receiving player
-     * @param target target player
+     * @param target immutable target snapshot
      */
-    public void hide(Player viewer, Player target) {
-        int entityId = target.getEntityId();
+    public void hide(Player viewer, PlayerVisibilitySnapshot target) {
+        int entityId = target.entityId();
         ViewerPacketState state = state(viewer);
         state.hiddenIds.add(entityId);
-        boolean trackedNow = target.getTrackedBy().contains(viewer);
+        boolean trackedNow = target.trackedViewerIds().contains(viewer.getUniqueId());
         if (trackedNow) {
             state.trackedIds.add(entityId);
         }
@@ -80,13 +72,14 @@ public final class PacketVisibilityController {
      * Shows a target immediately when Paper's tracker says this viewer tracks it.
      *
      * @param viewer receiving player
-     * @param target target player
+     * @param target immutable target snapshot
      */
-    public void show(Player viewer, Player target) {
-        int entityId = target.getEntityId();
+    public void show(Player viewer, PlayerVisibilitySnapshot target) {
+        int entityId = target.entityId();
         ViewerPacketState state = state(viewer);
         state.hiddenIds.remove(entityId);
-        boolean trackedNow = target.getTrackedBy().contains(viewer);
+        boolean trackedNow = target.trackedViewerIds().contains(viewer.getUniqueId())
+                || state.trackedIds.contains(entityId);
         if (!trackedNow) {
             state.trackedIds.remove(entityId);
             state.clientKnownIds.remove(entityId);
@@ -94,7 +87,7 @@ public final class PacketVisibilityController {
         }
         state.trackedIds.add(entityId);
         if (state.clientKnownIds.add(entityId)) {
-            sendSnapshot(viewer, target);
+            requestSnapshot(viewer, target);
         }
     }
 
@@ -146,17 +139,17 @@ public final class PacketVisibilityController {
      * Returns packet/tracker state for one directed pair.
      *
      * @param viewer receiving player
-     * @param target target player
+     * @param target immutable target snapshot
      * @return immutable packet diagnostic
      */
-    public PacketDebugState inspect(Player viewer, Player target) {
+    public PacketDebugState inspect(Player viewer, PlayerVisibilitySnapshot target) {
         ViewerPacketState state = viewers.get(viewer.getUniqueId());
-        int entityId = target.getEntityId();
+        int entityId = target.entityId();
         return new PacketDebugState(
                 state != null && state.hiddenIds.contains(entityId),
                 state != null && state.trackedIds.contains(entityId),
                 state != null && state.clientKnownIds.contains(entityId),
-                target.getTrackedBy().contains(viewer));
+                target.trackedViewerIds().contains(viewer.getUniqueId()));
     }
 
     /**
@@ -180,8 +173,17 @@ public final class PacketVisibilityController {
      * @param player departing player
      */
     public void removePlayer(Player player) {
-        viewers.remove(player.getUniqueId());
-        int entityId = player.getEntityId();
+        removePlayer(player.getUniqueId(), player.getEntityId());
+    }
+
+    /**
+     * Removes connection state using immutable identity values from a retired entity scheduler.
+     *
+     * @param playerId departing viewer UUID
+     * @param entityId departing target entity id
+     */
+    public void removePlayer(UUID playerId, int entityId) {
+        viewers.remove(playerId);
         for (ViewerPacketState state : viewers.values()) {
             state.hiddenIds.remove(entityId);
             state.trackedIds.remove(entityId);
@@ -198,86 +200,81 @@ public final class PacketVisibilityController {
         return viewers.computeIfAbsent(viewer.getUniqueId(), ignored -> new ViewerPacketState());
     }
 
-    private void sendSnapshot(Player viewer, Player target) {
+    private void requestSnapshot(Player viewer, PlayerVisibilitySnapshot target) {
+        Player handle = target.playerHandle();
+        int expectedEntityId = target.entityId();
+        UUID viewerId = viewer.getUniqueId();
+        if (Bukkit.isOwnedByCurrentRegion(handle)) {
+            completeSnapshot(viewer, expectedEntityId, PlayerSpawnSnapshot.capture(handle));
+            return;
+        }
+        handle.getScheduler().run(plugin, ignored -> {
+            if (!handle.isOnline() || handle.getEntityId() != expectedEntityId) {
+                abortSnapshot(viewerId, expectedEntityId);
+                return;
+            }
+            final PlayerSpawnSnapshot snapshot;
+            try {
+                snapshot = PlayerSpawnSnapshot.capture(handle);
+            } catch (RuntimeException exception) {
+                abortSnapshot(viewerId, expectedEntityId);
+                logger.log(Level.SEVERE, "Could not capture cross-region spawn for " + target.name(), exception);
+                return;
+            }
+            viewer.getScheduler().run(plugin,
+                    task -> completeSnapshot(viewer, expectedEntityId, snapshot),
+                    () -> abortSnapshot(viewerId, expectedEntityId));
+        }, () -> abortSnapshot(viewerId, expectedEntityId));
+    }
+
+    private void completeSnapshot(Player viewer, int expectedEntityId, PlayerSpawnSnapshot target) {
+        ViewerPacketState viewerState = state(viewer);
+        if (target.entityId() != expectedEntityId
+                || viewerState.hiddenIds.contains(expectedEntityId)
+                || !viewerState.trackedIds.contains(expectedEntityId)) {
+            viewerState.clientKnownIds.remove(expectedEntityId);
+            return;
+        }
         try {
-            org.bukkit.Location bukkitLocation = target.getLocation();
-            Vector velocity = target.getVelocity();
             sendSilently(viewer, new WrapperPlayServerSpawnEntity(
-                    target.getEntityId(),
-                    target.getUniqueId(),
+                    target.entityId(),
+                    target.playerId(),
                     EntityTypes.PLAYER,
-                    SpigotConversionUtil.fromBukkitLocation(bukkitLocation),
-                    bukkitLocation.getYaw(),
+                    target.location(),
+                    target.location().getYaw(),
                     0,
-                    new Vector3d(velocity.getX(), velocity.getY(), velocity.getZ())));
+                    target.velocity()));
 
             sendSilently(viewer, new WrapperPlayServerEntityMetadata(
-                    target.getEntityId(), SpigotConversionUtil.getEntityMetadata(target)));
-            sendScale(viewer, target);
-            sendSilently(viewer, new WrapperPlayServerEntityEquipment(target.getEntityId(), equipment(target)));
-            for (PotionEffect effect : target.getActivePotionEffects()) {
-                PotionType type = SpigotConversionUtil.fromBukkitPotionEffectType(effect.getType());
-                if (type == null) {
-                    continue;
-                }
-                byte flags = (byte) ((effect.isAmbient() ? 1 : 0)
-                        | (effect.hasParticles() ? 2 : 0)
-                        | (effect.hasIcon() ? 4 : 0));
-                sendSilently(viewer, new WrapperPlayServerEntityEffect(
-                        target.getEntityId(), type, effect.getAmplifier(), effect.getDuration(), flags));
+                    target.entityId(), target.metadata()));
+            if (target.scale() != null) {
+                sendSilently(viewer, new WrapperPlayServerUpdateAttributes(
+                        target.entityId(), List.of(target.scale())));
             }
-            sendSilently(viewer, new WrapperPlayServerEntityHeadLook(target.getEntityId(), bukkitLocation.getYaw()));
+            sendSilently(viewer, new WrapperPlayServerEntityEquipment(target.entityId(), target.equipment()));
+            for (PlayerSpawnSnapshot.EffectSnapshot effect : target.effects()) {
+                sendSilently(viewer, new WrapperPlayServerEntityEffect(
+                        target.entityId(), effect.type(), effect.amplifier(), effect.duration(), effect.flags()));
+            }
+            sendSilently(viewer, new WrapperPlayServerEntityHeadLook(
+                    target.entityId(), target.location().getYaw()));
             sendSilently(viewer, new WrapperPlayServerEntityVelocity(
-                    target.getEntityId(), new Vector3d(velocity.getX(), velocity.getY(), velocity.getZ())));
-            sendPassengerState(viewer, target);
+                    target.entityId(), target.velocity()));
+            if (target.vehicleId() >= 0 && viewerState.trackedIds.contains(target.vehicleId())) {
+                int[] passengerIds = target.passengerIds().stream().mapToInt(Integer::intValue).toArray();
+                sendSilently(viewer, new WrapperPlayServerSetPassengers(target.vehicleId(), passengerIds));
+            }
         } catch (RuntimeException exception) {
-            state(viewer).clientKnownIds.remove(target.getEntityId());
-            logger.log(Level.SEVERE, "Could not respawn " + target.getName() + " for " + viewer.getName(), exception);
+            viewerState.clientKnownIds.remove(target.entityId());
+            logger.log(Level.SEVERE, "Could not respawn " + target.name() + " for " + viewer.getName(), exception);
         }
     }
 
-    private void sendScale(Player viewer, Player target) {
-        AttributeInstance scale = target.getAttribute(Attribute.SCALE);
-        if (scale == null) {
-            return;
+    private void abortSnapshot(UUID viewerId, int entityId) {
+        ViewerPacketState state = viewers.get(viewerId);
+        if (state != null) {
+            state.clientKnownIds.remove(entityId);
         }
-        WrapperPlayServerUpdateAttributes.Property property = new WrapperPlayServerUpdateAttributes.Property(
-                Attributes.SCALE, scale.getValue(), Collections.emptyList());
-        sendSilently(viewer, new WrapperPlayServerUpdateAttributes(target.getEntityId(), List.of(property)));
-    }
-
-    private static List<Equipment> equipment(Player player) {
-        PlayerInventory inventory = player.getInventory();
-        List<Equipment> equipment = new ArrayList<>(6);
-        equipment.add(new Equipment(EquipmentSlot.MAIN_HAND,
-                packetItem(inventory.getItemInMainHand())));
-        equipment.add(new Equipment(EquipmentSlot.OFF_HAND,
-                packetItem(inventory.getItemInOffHand())));
-        equipment.add(new Equipment(EquipmentSlot.BOOTS,
-                packetItem(inventory.getBoots())));
-        equipment.add(new Equipment(EquipmentSlot.LEGGINGS,
-                packetItem(inventory.getLeggings())));
-        equipment.add(new Equipment(EquipmentSlot.CHEST_PLATE,
-                packetItem(inventory.getChestplate())));
-        equipment.add(new Equipment(EquipmentSlot.HELMET,
-                packetItem(inventory.getHelmet())));
-        return equipment;
-    }
-
-    private static com.github.retrooper.packetevents.protocol.item.ItemStack packetItem(
-            org.bukkit.inventory.ItemStack item) {
-        return item == null
-                ? com.github.retrooper.packetevents.protocol.item.ItemStack.EMPTY
-                : SpigotConversionUtil.fromBukkitItemStack(item);
-    }
-
-    private void sendPassengerState(Player viewer, Player target) {
-        Entity vehicle = target.getVehicle();
-        if (vehicle == null || !vehicle.getTrackedBy().contains(viewer)) {
-            return;
-        }
-        int[] passengerIds = vehicle.getPassengers().stream().mapToInt(Entity::getEntityId).toArray();
-        sendSilently(viewer, new WrapperPlayServerSetPassengers(vehicle.getEntityId(), passengerIds));
     }
 
     private static void sendSilently(Player viewer, com.github.retrooper.packetevents.wrapper.PacketWrapper<?> packet) {

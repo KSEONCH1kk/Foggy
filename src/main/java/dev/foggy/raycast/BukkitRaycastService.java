@@ -3,9 +3,9 @@ package dev.foggy.raycast;
 import dev.foggy.camera.CameraPose;
 import dev.foggy.config.FoggyConfig;
 import dev.foggy.math.FrustumMath;
+import dev.foggy.visibility.PlayerVisibilitySnapshot;
 import java.util.ArrayList;
 import java.util.List;
-import org.bukkit.entity.Player;
 import org.bukkit.util.RayTraceResult;
 import org.bukkit.util.Vector;
 
@@ -19,29 +19,25 @@ import org.bukkit.util.Vector;
 public final class BukkitRaycastService implements RaycastService {
     private static final int MAX_DEBUG_BLOCKED_RAYS = 8;
     private final FoggyConfig config;
-    private final TargetPointSampler targetPointSampler;
     private final VanillaBlockRaycaster blockRaycaster;
 
     /**
      * Creates the production raycast service.
      *
      * @param config raycast/FOV settings
-     * @param targetPointSampler interpolated hitbox sampler
      * @param blockRaycaster exact block geometry bridge
      */
-    public BukkitRaycastService(FoggyConfig config, TargetPointSampler targetPointSampler,
-                                VanillaBlockRaycaster blockRaycaster) {
+    public BukkitRaycastService(FoggyConfig config, VanillaBlockRaycaster blockRaycaster) {
         this.config = config;
-        this.targetPointSampler = targetPointSampler;
         this.blockRaycaster = blockRaycaster;
     }
 
     @Override
-    public OpticalResult evaluate(Player target, List<CameraPose> cameras) {
-        List<Vector> targetPoints = targetPointSampler.sample(target);
+    public OpticalResult evaluate(PlayerVisibilitySnapshot target, List<CameraPose> cameras) {
+        List<Vector> targetPoints = target.targetPoints();
         boolean anyInsideFov = false;
         for (CameraPose camera : cameras) {
-            if (!camera.world().equals(target.getWorld())) {
+            if (!camera.world().equals(target.world())) {
                 continue;
             }
             for (Vector point : targetPoints) {
@@ -49,7 +45,11 @@ public final class BukkitRaycastService implements RaycastService {
                     continue;
                 }
                 anyInsideFov = true;
-                if (trace(camera, point) == null) {
+                TraceResult trace = trace(camera, point);
+                if (!trace.owned()) {
+                    return OpticalResult.REGION_UNOWNED;
+                }
+                if (trace.hit() == null) {
                     return OpticalResult.VISIBLE;
                 }
             }
@@ -61,20 +61,20 @@ public final class BukkitRaycastService implements RaycastService {
      * Runs the same decision path while collecting bounded, human-readable diagnostics.
      * This method is intentionally not used for ordinary pairs because it allocates debug data.
      *
-     * @param target target player
+     * @param target immutable target snapshot
      * @param cameras plausible viewer cameras
      * @return detailed optical snapshot
      */
-    public RaycastDebugSnapshot diagnose(Player target, List<CameraPose> cameras) {
+    public RaycastDebugSnapshot diagnose(PlayerVisibilitySnapshot target, List<CameraPose> cameras) {
         long started = System.nanoTime();
-        List<Vector> targetPoints = targetPointSampler.sample(target);
+        List<Vector> targetPoints = target.targetPoints();
         List<RayDebugLine> representative = new ArrayList<>(MAX_DEBUG_BLOCKED_RAYS);
         int inFov = 0;
         int traced = 0;
         int blocked = 0;
         for (int cameraIndex = 0; cameraIndex < cameras.size(); cameraIndex++) {
             CameraPose camera = cameras.get(cameraIndex);
-            if (!camera.world().equals(target.getWorld())) {
+            if (!camera.world().equals(target.world())) {
                 continue;
             }
             for (Vector point : targetPoints) {
@@ -83,7 +83,14 @@ public final class BukkitRaycastService implements RaycastService {
                 }
                 inFov++;
                 traced++;
-                RayTraceResult hit = trace(camera, point);
+                TraceResult trace = trace(camera, point);
+                if (!trace.owned()) {
+                    return new RaycastDebugSnapshot(
+                            OpticalResult.REGION_UNOWNED, List.copyOf(cameras), targetPoints, inFov, traced,
+                            blocked, List.copyOf(representative), null, -1,
+                            System.nanoTime() - started);
+                }
+                RayTraceResult hit = trace.hit();
                 if (hit == null) {
                     RayDebugLine decisive = debugLine(camera, point, null, true);
                     return new RaycastDebugSnapshot(
@@ -116,12 +123,16 @@ public final class BukkitRaycastService implements RaycastService {
                 camera.verticalFovDegrees(), camera.aspectRatio());
     }
 
-    private RayTraceResult trace(CameraPose camera, Vector target) {
+    private TraceResult trace(CameraPose camera, Vector target) {
         Vector endpoint = traceEndpoint(camera.position(), target);
         if (endpoint == null) {
-            return null;
+            return new TraceResult(true, null);
         }
-        return blockRaycaster.traceOcclusion(camera.world(), camera.position(), endpoint);
+        if (!blockRaycaster.ownsTrace(camera.world(), camera.position(), endpoint)) {
+            return new TraceResult(false, null);
+        }
+        return new TraceResult(true,
+                blockRaycaster.traceOcclusion(camera.world(), camera.position(), endpoint));
     }
 
     private RayDebugLine debugLine(CameraPose camera, Vector target, RayTraceResult blocking, boolean clear) {
@@ -145,5 +156,8 @@ public final class BukkitRaycastService implements RaycastService {
         }
         double traceDistance = Math.max(0.0, distance - config.endpointEpsilon());
         return source.clone().add(delta.multiply(traceDistance / distance));
+    }
+
+    private record TraceResult(boolean owned, RayTraceResult hit) {
     }
 }

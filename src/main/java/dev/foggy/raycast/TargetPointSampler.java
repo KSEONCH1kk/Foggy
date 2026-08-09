@@ -2,56 +2,38 @@ package dev.foggy.raycast;
 
 import dev.foggy.config.FoggyConfig;
 import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.List;
-import java.util.Map;
-import java.util.UUID;
-import org.bukkit.entity.Player;
 import org.bukkit.util.BoundingBox;
 import org.bukkit.util.Vector;
 
 /** Samples the target hitbox at partial-tick positions, including corners and face centers. */
 public final class TargetPointSampler {
     private final FoggyConfig config;
-    private final MotionTracker motionTracker;
-    private final Map<UUID, List<Vector>> frameCache = new HashMap<>();
-    private long cachedGeneration = Long.MIN_VALUE;
 
     /**
      * Creates a hitbox sampler.
      *
      * @param config interpolation settings
-     * @param motionTracker player position history
      */
-    public TargetPointSampler(FoggyConfig config, MotionTracker motionTracker) {
+    public TargetPointSampler(FoggyConfig config) {
         this.config = config;
-        this.motionTracker = motionTracker;
     }
 
     /**
      * Returns stable sample points across the swept, interpolated target hitbox.
      *
-     * @param target target player
+     * @param currentBox current target box captured on its owning entity scheduler
+     * @param previous previous target position
+     * @param current current target position
      * @return hitbox point list
      */
-    public List<Vector> sample(Player target) {
-        long generation = motionTracker.generation();
-        if (generation != cachedGeneration) {
-            frameCache.clear();
-            cachedGeneration = generation;
-        }
-        return frameCache.computeIfAbsent(target.getUniqueId(), ignored -> sampleUncached(target));
-    }
-
-    private List<Vector> sampleUncached(Player target) {
-        BoundingBox currentBox = target.getBoundingBox();
-        MotionTracker.MotionFrame frame = motionTracker.frame(target);
+    public List<Vector> sample(BoundingBox currentBox, Vector previous, Vector current) {
         List<Vector> points = new ArrayList<>(config.interpolationSamples() * 11);
         int count = config.interpolationSamples();
         for (int index = 0; index < count; index++) {
             double t = count == 1 ? 1.0 : (double) index / (count - 1);
-            Vector interpolated = frame.interpolate(t);
-            Vector shift = interpolated.subtract(frame.current());
+            Vector interpolated = previous.clone().multiply(1.0 - t).add(current.clone().multiply(t));
+            Vector shift = interpolated.subtract(current);
             addBoxPoints(points, currentBox, shift);
         }
         return List.copyOf(points);
