@@ -3,7 +3,7 @@ plugins {
 }
 
 group = "dev.foggy"
-version = "1.0.0"
+version = "1.0.1"
 
 repositories {
     mavenCentral()
@@ -32,6 +32,7 @@ tasks.withType<JavaCompile>().configureEach {
 }
 
 tasks.processResources {
+    inputs.property("foggyVersion", project.version)
     filesMatching("plugin.yml") {
         expand("version" to project.version)
     }

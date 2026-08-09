@@ -41,26 +41,19 @@ public final class InvisibilityTracker {
     }
 
     /**
-     * Returns true when the target must be packet-hidden from this viewer.
+     * Determines whether state signals retain or completely remove the client entity.
      *
      * @param viewer receiving player
      * @param target tested player
-     * @return whether state-based hiding is required
+     * @return effective packet treatment
      */
-    public boolean isInvisibleTo(Player viewer, Player target) {
-        if (config.potionInvisibility() && target.hasPotionEffect(PotionEffectType.INVISIBILITY)) {
-            return true;
-        }
-        if (config.entityInvisibleFlag() && target.isInvisible()) {
-            return true;
-        }
-        if (config.spectatorInvisibility() && target.getGameMode() == GameMode.SPECTATOR) {
-            return true;
-        }
-        if (config.respectCanSee() && !viewer.canSee(target)) {
-            return true;
-        }
-        return !matchingHooks(target).isEmpty();
+    public InvisibilityDisposition disposition(Player viewer, Player target) {
+        boolean vanillaInvisible = isConfiguredVanillaInvisible(target);
+        boolean hardHidden = (config.spectatorInvisibility() && target.getGameMode() == GameMode.SPECTATOR)
+                || (config.respectCanSee() && !viewer.canSee(target))
+                || !matchingHooks(target).isEmpty();
+        return InvisibilityDisposition.resolve(
+                vanillaInvisible, hardHidden, config.preserveVanillaInvisibleEntity());
     }
 
     /**
@@ -76,12 +69,19 @@ public final class InvisibilityTracker {
         boolean spectator = target.getGameMode() == GameMode.SPECTATOR;
         boolean canSee = viewer.canSee(target);
         List<String> hooks = matchingHooks(target);
-        boolean hidden = (config.potionInvisibility() && potion)
-                || (config.entityInvisibleFlag() && flag)
-                || (config.spectatorInvisibility() && spectator)
+        boolean vanillaInvisible = (config.potionInvisibility() && potion)
+                || (config.entityInvisibleFlag() && flag);
+        boolean hardHidden = (config.spectatorInvisibility() && spectator)
                 || (config.respectCanSee() && !canSee)
                 || !hooks.isEmpty();
-        return new InvisibilityDebugSnapshot(potion, flag, spectator, canSee, hooks, hidden);
+        InvisibilityDisposition disposition = InvisibilityDisposition.resolve(
+                vanillaInvisible, hardHidden, config.preserveVanillaInvisibleEntity());
+        return new InvisibilityDebugSnapshot(potion, flag, spectator, canSee, hooks, disposition);
+    }
+
+    private boolean isConfiguredVanillaInvisible(Player target) {
+        return (config.potionInvisibility() && target.hasPotionEffect(PotionEffectType.INVISIBILITY))
+                || (config.entityInvisibleFlag() && target.isInvisible());
     }
 
     private List<String> matchingHooks(Player target) {

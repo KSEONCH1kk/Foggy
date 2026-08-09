@@ -265,7 +265,8 @@ public final class FoggyDebugCommand implements CommandExecutor, TabCompleter {
                 + " debounce=" + engine.pendingHideTicks(), frame.bypass() ? NamedTextColor.RED : NamedTextColor.YELLOW);
         line(viewer, "bypass=" + frame.bypass() + " invis[potion=" + invisibility.potionEffect()
                 + ", flag=" + invisibility.entityInvisibleFlag() + ", spectator=" + invisibility.spectator()
-                + ", canSee=" + invisibility.bukkitCanSee() + ", hooks=" + invisibility.vanishHooks() + "]",
+                + ", canSee=" + invisibility.bukkitCanSee() + ", hooks=" + invisibility.vanishHooks()
+                + ", mode=" + invisibility.disposition() + "]",
                 frame.bypass() ? NamedTextColor.RED : NamedTextColor.GRAY);
         line(viewer, "optical=" + optical.result() + " cameras=" + optical.cameras().size()
                 + " exact=" + exactCameras + " fovY=" + decimal(minFov) + ".." + decimal(maxFov)
@@ -328,7 +329,7 @@ public final class FoggyDebugCommand implements CommandExecutor, TabCompleter {
         if (frame.bypass()) {
             return "BYPASS";
         }
-        if (frame.invisibility().hidden()) {
+        if (frame.invisibility().packetHidden()) {
             return "INVISIBLE";
         }
         return frame.optical().result().name();

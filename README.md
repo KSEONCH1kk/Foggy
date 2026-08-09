@@ -6,8 +6,10 @@ restored through PacketEvents packets for one viewer at a time.
 
 ## What it does
 
-- hides a target that is invisible, vanished, in spectator mode, outside every plausible FOV,
-  or fully occluded by complete block-state OUTLINE voxel shapes;
+- fully hides a target that is vanished, in spectator mode, outside every plausible FOV, or
+  occluded by complete block-state OUTLINE voxel shapes;
+- keeps ordinary potion/metadata-invisible entities client-side so vanilla can render their
+  armor and held items and retain attack interaction while hiding the player body;
 - evaluates every directed nearby pair at `ServerTickEndEvent`, after the tick's movement;
 - restores visibility without show-side debounce by sending `SpawnEntity` plus current metadata,
   scale, equipment, potion effects, head rotation, velocity and passenger state in one flush;
@@ -19,7 +21,7 @@ restored through PacketEvents packets for one viewer at a time.
 
 1. Run Paper 1.21.4 on Java 21.
 2. Install the standalone PacketEvents 2.13.0 Spigot plugin.
-3. Copy `Foggy-1.0.0.jar` to `plugins/`.
+3. Copy `Foggy-1.0.1.jar` to `plugins/`.
 4. Start once, edit `plugins/Foggy/config.yml`, then run `/foggy reload` or restart.
 
 PacketEvents is a hard dependency (`depend: [packetevents]`). Foggy is intentionally marked as
@@ -33,7 +35,7 @@ thread.
 ./gradlew loadTest
 ```
 
-The distributable is `build/libs/Foggy-1.0.0.jar`. PacketEvents and Paper are `compileOnly` and are
+The distributable is `build/libs/Foggy-1.0.1.jar`. PacketEvents and Paper are `compileOnly` and are
 not shaded into it.
 
 ## Configuration
@@ -45,6 +47,12 @@ confirmation ticks.
 visible result always sends the spawn snapshot immediately.
 
 Players with `foggy.bypass` always see managed targets. The permission is not granted by default.
+
+`invisibility.preserve-vanilla-entity: true` is the default. Potion invisibility and the ordinary
+entity invisible flag then use vanilla metadata instead of `DestroyEntities`: equipment stays
+visible and the entity remains attackable. Spectator, `Player#canSee=false` and supported vanish
+APIs remain hard packet-hide signals. Set the option to `false` only if legacy full removal for
+ordinary invisibility is explicitly required.
 
 ## Live debug
 

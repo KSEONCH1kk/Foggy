@@ -18,7 +18,7 @@ class PairVisibilityStateTest {
     }
 
     @Test
-    void invisibilityBypassesDebounce() {
+    void hardStateHideBypassesDebounce() {
         PairVisibilityState state = new PairVisibilityState(9);
         assertEquals(VisibilityTransition.HIDE, state.apply(HideReason.INVISIBLE, 10));
     }

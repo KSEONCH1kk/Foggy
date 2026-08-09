@@ -86,14 +86,14 @@ public final class VisibilityEngine {
     }
 
     /**
-     * Recomputes viewers of a target with an event-derived invisibility override.
+     * Recomputes viewers of a target with an event-derived hard-hide override.
      *
      * @param target changed target
-     * @param forcedInvisible event-derived state
+     * @param forcedPacketHidden event-derived state
      */
-    public void recomputeTarget(Player target, boolean forcedInvisible) {
+    public void recomputeTarget(Player target, boolean forcedPacketHidden) {
         for (Player viewer : nearbyDirect(target)) {
-            process(viewer, target, forcedInvisible, cameraEstimator.estimate(viewer));
+            process(viewer, target, forcedPacketHidden, cameraEstimator.estimate(viewer));
         }
     }
 
@@ -144,11 +144,11 @@ public final class VisibilityEngine {
         packetController.clear();
     }
 
-    private void recomputePlayer(Player player, @Nullable Boolean forcedInvisible) {
+    private void recomputePlayer(Player player, @Nullable Boolean forcedPacketHidden) {
         List<CameraPose> playerCameras = cameraEstimator.estimate(player);
         for (Player other : nearbyDirect(player)) {
             process(player, other, null, playerCameras);
-            process(other, player, forcedInvisible, cameraEstimator.estimate(other));
+            process(other, player, forcedPacketHidden, cameraEstimator.estimate(other));
         }
     }
 
@@ -163,7 +163,7 @@ public final class VisibilityEngine {
         return result;
     }
 
-    private void process(Player viewer, Player target, @Nullable Boolean forcedInvisible,
+    private void process(Player viewer, Player target, @Nullable Boolean forcedPacketHidden,
                          List<CameraPose> cameras) {
         if (!viewer.isOnline() || !target.isOnline() || viewer.getWorld() != target.getWorld()) {
             return;
@@ -174,7 +174,7 @@ public final class VisibilityEngine {
             packetController.forgetEntity(viewer, state.entityId());
             state.resetForEntity(target.getEntityId());
         }
-        HideReason reason = decide(viewer, target, forcedInvisible, cameras);
+        HideReason reason = decide(viewer, target, forcedPacketHidden, cameras);
         VisibilityTransition transition = state.apply(reason, config.hideConfirmationTicks());
         if (transition == VisibilityTransition.HIDE) {
             packetController.hide(viewer, target);
@@ -183,14 +183,15 @@ public final class VisibilityEngine {
         }
     }
 
-    private HideReason decide(Player viewer, Player target, @Nullable Boolean forcedInvisible,
+    private HideReason decide(Player viewer, Player target, @Nullable Boolean forcedPacketHidden,
                               List<CameraPose> cameras) {
         if (viewer.hasPermission("foggy.bypass")) {
             return HideReason.NONE;
         }
-        boolean invisible = forcedInvisible != null
-                ? forcedInvisible : invisibilityTracker.isInvisibleTo(viewer, target);
-        if (invisible) {
+        boolean packetHidden = forcedPacketHidden != null
+                ? forcedPacketHidden
+                : invisibilityTracker.disposition(viewer, target).removesEntity();
+        if (packetHidden) {
             return HideReason.INVISIBLE;
         }
         OpticalResult optical = raycastService.evaluate(target, cameras);

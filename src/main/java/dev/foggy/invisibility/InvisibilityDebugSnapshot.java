@@ -10,7 +10,7 @@ import java.util.List;
  * @param spectator target is in spectator mode
  * @param bukkitCanSee current {@code viewer.canSee(target)} value
  * @param vanishHooks hooks that reported the target vanished
- * @param hidden final configured invisibility result
+ * @param disposition final configured packet treatment
  */
 public record InvisibilityDebugSnapshot(
         boolean potionEffect,
@@ -18,6 +18,14 @@ public record InvisibilityDebugSnapshot(
         boolean spectator,
         boolean bukkitCanSee,
         List<String> vanishHooks,
-        boolean hidden
+        InvisibilityDisposition disposition
 ) {
+    /**
+     * Returns whether state-based invisibility removes the entity from this viewer.
+     *
+     * @return true only for hard/legacy packet hiding
+     */
+    public boolean packetHidden() {
+        return disposition.removesEntity();
+    }
 }

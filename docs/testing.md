@@ -12,7 +12,8 @@
 - thin ladder/sign planes and transparent-shape pass-through before a later opaque blocker;
 - official 1.21.4 cutout catalog load/count and opaque-base exclusions;
 - vertical-FOV tangent and aspect-ratio conversion;
-- hide-only debounce, immediate show and immediate invisibility hide.
+- hide-only debounce, immediate show and immediate hard vanish/spectator hide;
+- vanilla-invisibility disposition: preserve entity for equipment/hits, with hard-hide priority.
 
 `./gradlew loadTest` runs a deterministic 200-player, 20-iteration synthetic pair/ray workload and
 prints checks/second. Override population with `-Dfoggy.load.players=N`. It intentionally asserts
@@ -36,8 +37,9 @@ and enable PacketEvents debug/timestamps if packet arrival measurements are requ
    and verify it becomes the blocker.
 5. Reappearance: break the blocking block or step out. Confirm `SPAWN_ENTITY` and snapshot packets
    share the first Paper end-of-tick timestamp after visibility changes. There is no show debounce.
-6. Potion/spectator/vanish: add and remove each state and verify directed visibility plus tab-list
-   stability.
+6. Potion invisibility: armor and both held items remain rendered, the invisible player remains
+   attackable, and debug reports `mode=VANILLA_ENTITY`. Spectator/vanish must instead report
+   `PACKET_HIDDEN` and keep directed visibility plus tab-list stability.
 7. F5: repeat rear and front perspective with and without the companion; ensure fallback never
    hides a target visible from either plausible camera.
 8. Equipment/pose/effects: hide while changing armor, hand item, crouch/swim pose, scale and potion

@@ -53,7 +53,8 @@ public final class FoggyPlugin extends JavaPlugin {
             getServer().getPluginManager().disablePlugin(this);
             return;
         }
-        getLogger().info("Foggy 1.0.0 enabled for Paper 1.21.4 / PacketEvents 2.13.0");
+        getLogger().info("Foggy " + getPluginMeta().getVersion()
+                + " enabled for Paper 1.21.4 / PacketEvents 2.13.0");
     }
 
     @Override

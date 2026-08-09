@@ -19,13 +19,14 @@ Debug работает от лица наблюдателя: войдите те
 
 | Поле | Значение |
 |---|---|
-| `FINAL` | Фактическая верхнеуровневая причина: `BYPASS`, `INVISIBLE`, `VISIBLE`, `OCCLUDED` или `OUTSIDE_FOV` |
+| `FINAL` | Верхнеуровневая причина: `INVISIBLE` означает только hard hide (vanish/spectator), не `VANILLA_ENTITY` |
 | `engineReason` | Решение, сохранённое VisibilityEngine на последнем tick-end |
 | `managed` | Пара находится в одном мире и внутри `visibility.radius-blocks` |
 | `hidden` | Engine уже выполнил переход visible → hidden |
 | `debounce` | Сколько последовательных optical-hide подтверждений накоплено |
 | `bypass` | У viewer есть `foggy.bypass`; при `true` скрытия намеренно нет |
 | `potion/flag/spectator` | Отдельные invisibility-сигналы цели |
+| `mode` | `VANILLA_ENTITY` сохраняет entity/вещи/хиты; `PACKET_HIDDEN` полностью удаляет entity |
 | `canSee` | Значение read-only `viewer.canSee(target)` для интеграции с vanish-плагинами |
 | `optical` | Результат FOV + voxel raycast без учёта invisibility/bypass |
 | `cameras` | Число проверенных camera poses; fallback включает first/back/front F5 и source margin |

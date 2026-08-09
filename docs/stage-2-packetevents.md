@@ -67,7 +67,8 @@ radius. If the average nearby population is `k`, pair work is O(nÂ·k), with O(nÂ
 
 The expensive ray phase has early exits:
 
-1. invisibility and bypass are checked first;
+1. hard invisibility (vanish/spectator/canSee) and bypass are checked first; ordinary vanilla
+   invisibility retains the client entity for equipment rendering and interaction;
 2. distance/cell rejection occurs before camera or target sampling;
 3. FOV rejects a point before a world ray;
 4. the first unblocked point returns visible;

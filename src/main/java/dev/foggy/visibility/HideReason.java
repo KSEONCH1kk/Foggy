@@ -4,7 +4,7 @@ package dev.foggy.visibility;
 public enum HideReason {
     /** Target is visible. */
     NONE(false),
-    /** State-based invisibility requires an immediate hide. */
+    /** Hard state-based invisibility (vanish/spectator) requires an immediate hide. */
     INVISIBLE(true),
     /** Every in-frustum target ray is block-occluded. */
     OCCLUDED(false),
@@ -18,7 +18,7 @@ public enum HideReason {
     }
 
     /**
-     * Invisibility is security/state driven and bypasses optical debounce.
+     * Hard vanish/spectator state is security driven and bypasses optical debounce.
      *
      * @return whether this reason bypasses confirmation ticks
      */

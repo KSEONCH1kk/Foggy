@@ -30,6 +30,7 @@ import org.bukkit.configuration.file.FileConfiguration;
  * @param spectatorInvisibility hide spectator targets
  * @param respectCanSee respect visibility state published by other Bukkit plugins
  * @param reflectiveVanishHooks enable optional SuperVanish/PremiumVanish reflection hooks
+ * @param preserveVanillaInvisibleEntity retain vanilla-invisible entities for equipment and hits
  * @param companionEnabled accept authenticated-by-connection camera telemetry
  * @param companionChannel plugin messaging channel
  * @param companionTtlMillis maximum age of a companion sample
@@ -62,6 +63,7 @@ public record FoggyConfig(
         boolean spectatorInvisibility,
         boolean respectCanSee,
         boolean reflectiveVanishHooks,
+        boolean preserveVanillaInvisibleEntity,
         boolean companionEnabled,
         String companionChannel,
         long companionTtlMillis,
@@ -129,6 +131,7 @@ public record FoggyConfig(
                 config.getBoolean("invisibility.spectator", true),
                 config.getBoolean("invisibility.respect-bukkit-can-see", true),
                 config.getBoolean("invisibility.reflective-vanish-hooks", true),
+                config.getBoolean("invisibility.preserve-vanilla-entity", true),
                 config.getBoolean("companion.enabled", true),
                 config.getString("companion.channel", "foggy:camera"), ttl, maxOffset, minFov, maxFov
         );

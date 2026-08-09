@@ -68,6 +68,10 @@ raycast:
   opaque-material-overrides: []
 
 invisibility:
+  # Keep ordinary invisible entities client-side. Vanilla metadata hides the body while
+  # armor/held items remain rendered and attack interaction keeps working. Spectator,
+  # Bukkit hide/vanish and supported vanish APIs still remove the complete entity.
+  preserve-vanilla-entity: true
   potion-effect: true
   entity-invisible-flag: true
   spectator: true

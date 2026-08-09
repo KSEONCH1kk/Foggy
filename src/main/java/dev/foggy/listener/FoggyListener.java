@@ -9,12 +9,10 @@ import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.EventPriority;
 import org.bukkit.event.Listener;
-import org.bukkit.event.entity.EntityPotionEffectEvent;
 import org.bukkit.event.player.PlayerChangedWorldEvent;
 import org.bukkit.event.player.PlayerGameModeChangeEvent;
 import org.bukkit.event.player.PlayerJoinEvent;
 import org.bukkit.event.player.PlayerQuitEvent;
-import org.bukkit.potion.PotionEffectType;
 
 /** Bridges Paper lifecycle/discrete-state events to the end-of-tick visibility engine. */
 public final class FoggyListener implements Listener {
@@ -77,22 +75,6 @@ public final class FoggyListener implements Listener {
     @EventHandler(priority = EventPriority.MONITOR)
     public void onWorldChange(PlayerChangedWorldEvent event) {
         visibilityEngine.recomputePlayer(event.getPlayer());
-    }
-
-    /**
-     * Immediately hides newly invisible players; removals are shown at this same tick's end.
-     *
-     * @param event potion-effect transition
-     */
-    @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
-    public void onPotionEffect(EntityPotionEffectEvent event) {
-        if (!(event.getEntity() instanceof Player player)
-                || !event.getModifiedType().equals(PotionEffectType.INVISIBILITY)) {
-            return;
-        }
-        if (event.getNewEffect() != null) {
-            visibilityEngine.recomputeTarget(player, true);
-        }
     }
 
     /**
