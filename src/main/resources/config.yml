@@ -1,0 +1,83 @@
+# Foggy targets Paper 1.21.4 and Java 21. PacketEvents 2.13.0 is required.
+visibility:
+  radius-blocks: 128.0
+  spatial-cell-size: 16
+  # 1 = hide on the first confirmed server tick. Raise to 2 only if wall-edge jitter
+  # is more important than the extra hiding delay. Showing is never debounced.
+  hide-confirmation-ticks: 1
+  use-fov: true
+
+fov:
+  # Minecraft's configured FOV is a vertical perspective angle. It is unavailable
+  # to an unmodified server, so fallback poses use this value plus the margin.
+  fallback-vertical-degrees: 70.0
+  conservative-margin-degrees: 20.0
+  fallback-aspect-ratio: 1.7777778
+
+camera:
+  # Vanilla third-person camera distance is 4 * entity scale before clipping.
+  fallback-third-person-distance: 4.0
+  distance-samples: 4
+  source-margin-blocks: 0.10
+  include-front-third-person: true
+  include-back-third-person: true
+
+raycast:
+  # Samples previous/current client-interpolation positions. 3 means t=0, .5, 1.
+  interpolation-samples: 3
+  endpoint-epsilon: 0.0001
+  # Visibility uses Minecraft 1.21.4 ClipContext.Block.OUTLINE. This includes every
+  # state-dependent VoxelShape sub-box (stairs, slabs, fences, walls, signs, ladders, etc.).
+  # "pass-through" still intersects these shapes, but listed translucent materials do not
+  # terminate the ray. Use "occlude" if glass/leaves must behave like opaque blockers.
+  transparent-block-mode: pass-through
+  # Case-insensitive Bukkit Material names. '*' is supported anywhere in a value.
+  transparent-materials:
+    - AIR
+    - CAVE_AIR
+    - VOID_AIR
+    - WATER
+    - LAVA
+    - BUBBLE_COLUMN
+    - GLASS
+    - "*_STAINED_GLASS"
+    - TINTED_GLASS
+    - GLASS_PANE
+    - "*_STAINED_GLASS_PANE"
+    - ICE
+    - FROSTED_ICE
+    - SLIME_BLOCK
+    - HONEY_BLOCK
+    - "*_LEAVES"
+    - NETHER_PORTAL
+    - END_PORTAL
+    - END_GATEWAY
+    - BARRIER
+    - STRUCTURE_VOID
+    - LIGHT
+    - BEACON
+  # The built-in catalog contains all 280 relevant CUTOUT/CUTOUT_MIPPED/TRIPWIRE
+  # registrations from the official 1.21.4 client. Fences and gates are added because
+  # their solid render models contain geometric gaps coarser than the server OUTLINE shape.
+  cutout-block-mode: pass-through
+  cutout-materials:
+    - "*_FENCE"
+    - "*_FENCE_GATE"
+  # Evaluated before both lists. Example: [OAK_DOOR, TINTED_GLASS, "*_LEAVES"]
+  # forces selected materials to stop rays while other transparent/cutout entries pass.
+  opaque-material-overrides: []
+
+invisibility:
+  potion-effect: true
+  entity-invisible-flag: true
+  spectator: true
+  respect-bukkit-can-see: true
+  reflective-vanish-hooks: true
+
+companion:
+  enabled: true
+  channel: foggy:camera
+  sample-ttl-millis: 1500
+  max-camera-offset-blocks: 5.0
+  min-fov-degrees: 10.0
+  max-fov-degrees: 150.0

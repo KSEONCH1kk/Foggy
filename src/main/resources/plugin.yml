@@ -1,0 +1,22 @@
+name: Foggy
+version: '${version}'
+main: dev.foggy.FoggyPlugin
+api-version: '1.21'
+authors: [Foggy]
+description: Per-viewer player visibility control implemented with PacketEvents.
+depend: [packetevents]
+folia-supported: false
+commands:
+  foggy:
+    description: Foggy operator diagnostics and configuration reload.
+    usage: /foggy <debug|reload>
+permissions:
+  foggy.bypass:
+    description: Always see players managed by Foggy.
+    default: false
+  foggy.debug:
+    description: Inspect Foggy decisions and render camera/raycast particles.
+    default: op
+  foggy.reload:
+    description: Reload and validate Foggy configuration without restarting the server.
+    default: op
