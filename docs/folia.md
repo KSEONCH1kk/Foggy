@@ -1,6 +1,6 @@
 # Folia compatibility
 
-Foggy 2.0.1 supports current Paper and Folia 26.x while retaining classic Bukkit/Paper support and
+Foggy 2.1.0 supports current Paper and Folia 26.x while retaining classic Bukkit/Paper support and
 declares `folia-supported: true` in `plugin.yml`. The flag only allows Folia to load the plugin;
 compatibility comes from the capability bridge, scheduler and ownership rules below.
 

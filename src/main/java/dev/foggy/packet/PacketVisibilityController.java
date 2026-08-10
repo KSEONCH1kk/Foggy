@@ -3,6 +3,7 @@ package dev.foggy.packet;
 import com.github.retrooper.packetevents.PacketEvents;
 import com.github.retrooper.packetevents.manager.player.PlayerManager;
 import com.github.retrooper.packetevents.protocol.entity.type.EntityTypes;
+import dev.foggy.integration.PlayerRenderCompatibility;
 import dev.foggy.visibility.PlayerVisibilitySnapshot;
 import dev.foggy.platform.PlatformAdapter;
 import com.github.retrooper.packetevents.manager.server.ServerVersion;
@@ -38,6 +39,8 @@ public final class PacketVisibilityController {
     private final Logger logger;
     private final PlatformAdapter platform;
     private final Map<UUID, ViewerPacketState> viewers = new ConcurrentHashMap<>();
+    private final RelatedEntityRegistry relatedEntities = new RelatedEntityRegistry();
+    private volatile PlayerRenderCompatibility renderCompatibility = PlayerRenderCompatibility.NONE;
 
     /**
      * Creates a controller.
@@ -50,6 +53,12 @@ public final class PacketVisibilityController {
         this.platform = platform;
     }
 
+    /** Installs the optional per-player renderer bridge discovered during plugin startup. */
+    public void setRenderCompatibility(PlayerRenderCompatibility compatibility) {
+        this.renderCompatibility = compatibility == null
+                ? PlayerRenderCompatibility.NONE : compatibility;
+    }
+
     /**
      * Hides a currently tracked target, or pre-arms cancellation for its future spawn.
      *
@@ -60,13 +69,25 @@ public final class PacketVisibilityController {
         int entityId = target.entityId();
         ViewerPacketState state = state(viewer);
         state.hiddenIds.add(entityId);
+        Set<Integer> relatedIds = relatedEntities.related(entityId);
+        state.hiddenIds.addAll(relatedIds);
         boolean trackedNow = target.trackedViewerIds().contains(viewer.getUniqueId());
         if (trackedNow) {
             state.trackedIds.add(entityId);
         }
-        if (trackedNow || state.clientKnownIds.remove(entityId)) {
+        boolean clientKnewTarget = state.clientKnownIds.remove(entityId);
+        boolean clientKnewRenderer = false;
+        for (int relatedId : relatedIds) {
+            clientKnewRenderer |= state.clientKnownIds.remove(relatedId);
+        }
+        boolean rendererRemoved = renderCompatibility.hide(viewer, target.playerId());
+        if (trackedNow || clientKnewTarget || clientKnewRenderer) {
             sendSilently(viewer, new WrapperPlayServerDestroyEntities(entityId));
             state.clientKnownIds.remove(entityId);
+        }
+        if (!rendererRemoved && clientKnewRenderer) {
+            int[] destroyed = relatedIds.stream().mapToInt(Integer::intValue).toArray();
+            sendSilently(viewer, new WrapperPlayServerDestroyEntities(destroyed));
         }
     }
 
@@ -80,6 +101,9 @@ public final class PacketVisibilityController {
         int entityId = target.entityId();
         ViewerPacketState state = state(viewer);
         state.hiddenIds.remove(entityId);
+        for (int relatedId : relatedEntities.related(entityId)) {
+            state.hiddenIds.remove(relatedId);
+        }
         boolean trackedNow = target.trackedViewerIds().contains(viewer.getUniqueId())
                 || state.trackedIds.contains(entityId);
         if (!trackedNow) {
@@ -138,6 +162,71 @@ public final class PacketVisibilityController {
     }
 
     /**
+     * Removes hidden passengers from an ordinary server mount update.
+     *
+     * <p>This prevents GSit and vanilla vehicle packets from reattaching a hidden player before
+     * Foggy has restored that player's complete spawn snapshot.</p>
+     */
+    public int[] visiblePassengers(Player viewer, int[] passengerIds) {
+        ViewerPacketState state = viewers.get(viewer.getUniqueId());
+        if (state == null || state.hiddenIds.isEmpty()) {
+            return passengerIds;
+        }
+        return filterPassengers(passengerIds, state.hiddenIds);
+    }
+
+    static int[] filterPassengers(int[] passengerIds, Set<Integer> hiddenIds) {
+        int visible = 0;
+        for (int passengerId : passengerIds) {
+            if (!hiddenIds.contains(passengerId)) {
+                visible++;
+            }
+        }
+        if (visible == passengerIds.length) {
+            return passengerIds;
+        }
+        int[] filtered = new int[visible];
+        int index = 0;
+        for (int passengerId : passengerIds) {
+            if (!hiddenIds.contains(passengerId)) {
+                filtered[index++] = passengerId;
+            }
+        }
+        return filtered;
+    }
+
+    /** Registers a GSit fake-player renderer as part of one authoritative player entity. */
+    public void registerRelatedEntity(int playerEntityId, int relatedEntityId) {
+        relatedEntities.register(playerEntityId, relatedEntityId);
+        for (ViewerPacketState state : viewers.values()) {
+            if (state.hiddenIds.contains(playerEntityId)) {
+                state.hiddenIds.add(relatedEntityId);
+            }
+        }
+    }
+
+    /** Removes a renderer relationship and every stale per-viewer packet flag for its id. */
+    public void unregisterRelatedEntity(int playerEntityId, int relatedEntityId) {
+        relatedEntities.unregister(playerEntityId, relatedEntityId);
+        for (ViewerPacketState state : viewers.values()) {
+            state.hiddenIds.remove(relatedEntityId);
+            state.trackedIds.remove(relatedEntityId);
+            state.clientKnownIds.remove(relatedEntityId);
+        }
+    }
+
+    /** Returns viewer UUIDs that currently hide the supplied authoritative player entity. */
+    public Set<UUID> hiddenViewers(int playerEntityId) {
+        Set<UUID> result = new java.util.HashSet<UUID>();
+        for (Map.Entry<UUID, ViewerPacketState> entry : viewers.entrySet()) {
+            if (entry.getValue().hiddenIds.contains(playerEntityId)) {
+                result.add(entry.getKey());
+            }
+        }
+        return result;
+    }
+
+    /**
      * Returns packet/tracker state for one directed pair.
      *
      * @param viewer receiving player
@@ -166,6 +255,11 @@ public final class PacketVisibilityController {
             state.hiddenIds.remove(entityId);
             state.trackedIds.remove(entityId);
             state.clientKnownIds.remove(entityId);
+            for (int relatedId : relatedEntities.related(entityId)) {
+                state.hiddenIds.remove(relatedId);
+                state.trackedIds.remove(relatedId);
+                state.clientKnownIds.remove(relatedId);
+            }
         }
     }
 
@@ -186,16 +280,23 @@ public final class PacketVisibilityController {
      */
     public void removePlayer(UUID playerId, int entityId) {
         viewers.remove(playerId);
+        Set<Integer> relatedIds = relatedEntities.removePrimary(entityId);
         for (ViewerPacketState state : viewers.values()) {
             state.hiddenIds.remove(entityId);
             state.trackedIds.remove(entityId);
             state.clientKnownIds.remove(entityId);
+            for (int relatedId : relatedIds) {
+                state.hiddenIds.remove(relatedId);
+                state.trackedIds.remove(relatedId);
+                state.clientKnownIds.remove(relatedId);
+            }
         }
     }
 
     /** Clears all thread-safe packet snapshots. */
     public void clear() {
         viewers.clear();
+        relatedEntities.clear();
     }
 
     private ViewerPacketState state(Player viewer) {
@@ -269,10 +370,11 @@ public final class PacketVisibilityController {
             sendSilently(viewer, new WrapperPlayServerEntityVelocity(
                     target.entityId(), target.velocity()));
             if (version.isNewerThanOrEquals(ServerVersion.V_1_9)
-                    && target.vehicleId() >= 0 && viewerState.trackedIds.contains(target.vehicleId())) {
+                    && target.vehicleId() >= 0) {
                 int[] passengerIds = target.passengerIds().stream().mapToInt(Integer::intValue).toArray();
                 sendSilently(viewer, new WrapperPlayServerSetPassengers(target.vehicleId(), passengerIds));
             }
+            renderCompatibility.show(viewer, target.playerId());
         } catch (RuntimeException exception) {
             viewerState.clientKnownIds.remove(target.entityId());
             logger.log(Level.SEVERE, "Could not respawn " + target.name() + " for " + viewer.getName(), exception);

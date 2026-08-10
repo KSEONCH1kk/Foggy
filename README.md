@@ -22,13 +22,14 @@ version-aware PacketEvents packets.
   `VoxelShape` boxes on 1.16+;
 - conservatively passes transparent and cutout blocks whose texture/model holes cannot be
   represented by server collision geometry;
+- mirrors visibility to GSit seat/passenger chains and fake-player pose renderers;
 - accepts optional exact F5/FOV/camera telemetry on `foggy:camera`.
 
 ## Installation
 
 1. Run a supported server on the Java version that server requires.
 2. Install the standalone PacketEvents 2.13.0 Spigot plugin.
-3. Copy `Foggy-2.0.1.jar` to `plugins/`.
+3. Copy `Foggy-2.1.0.jar` to `plugins/`.
 4. Start the server, edit `plugins/Foggy/config.yml`, then use `/foggy reload`.
 
 Foggy itself is Java 8 bytecode. This does **not** change the JVM required by the server: for
@@ -46,7 +47,7 @@ without statically linking modern-only Bukkit classes.
 ./gradlew loadTest
 ```
 
-The distributable is `build/libs/Foggy-2.0.1.jar`. Paper/Spigot and PacketEvents are
+The distributable is `build/libs/Foggy-2.1.0.jar`. Paper/Spigot and PacketEvents are
 `compileOnly`; they are not shaded. `check` also rejects any class newer than Java 8 classfile
 major version 52.
 
@@ -82,6 +83,14 @@ shape bridge/fallback state and packet tracking flags. Viewer-only particles dra
 points, blockers and the first clear ray. `fallback > 0` in the cache line means that a native
 shape could not be read and should be investigated. Full field/color documentation is in
 [`docs/debugging.md`](docs/debugging.md).
+
+## GSit compatibility
+
+GSit is an optional soft dependency; no GSit classes are linked when it is absent. Ordinary
+`/sit`, player-on-player stacks and other mounts use Foggy's generic passenger filtering and
+same-tick mount restoration. GSit fake-player renderers used by `/lay`, `/layback`, `/bellyflop`
+and `/spin` are hidden and recreated together with their authoritative player. The integration was
+runtime-tested with GSit 3.5.1 on Paper 1.20.6. See [`docs/gsit.md`](docs/gsit.md).
 
 ## Geometry and performance
 

@@ -5,6 +5,8 @@ import dev.foggy.camera.CameraEstimator;
 import dev.foggy.camera.CompanionCameraRegistry;
 import dev.foggy.config.FoggyConfig;
 import dev.foggy.debug.FoggyDebugCommand;
+import dev.foggy.integration.GSitCompatibility;
+import dev.foggy.integration.PlayerRenderCompatibility;
 import dev.foggy.invisibility.InvisibilityTracker;
 import dev.foggy.listener.FoggyListener;
 import dev.foggy.packet.FoggyPacketListener;
@@ -33,6 +35,7 @@ public final class FoggyPlugin extends JavaPlugin {
     private CompensatedWorldListener compensatedWorldListener;
     private CompensatedWorld compensatedWorld;
     private PlatformAdapter platform;
+    private PlayerRenderCompatibility renderCompatibility;
     private String companionChannel;
     private FoggyConfig activeSettings;
 
@@ -134,6 +137,9 @@ public final class FoggyPlugin extends JavaPlugin {
         TargetPointSampler pointSampler = new TargetPointSampler(settings);
         if (packetController == null) {
             packetController = new PacketVisibilityController(this, getLogger(), platform);
+            renderCompatibility = GSitCompatibility.install(
+                    this, packetController, platform, getLogger());
+            packetController.setRenderCompatibility(renderCompatibility);
         }
         compensatedWorld = new CompensatedWorld(settings, getLogger(), platform);
         VanillaBlockRaycaster blockRaycaster = new VanillaBlockRaycaster(settings, compensatedWorld);
@@ -193,6 +199,10 @@ public final class FoggyPlugin extends JavaPlugin {
             debugCommand = null;
         }
         if (!preservePacketState) {
+            if (renderCompatibility != null) {
+                renderCompatibility.close();
+                renderCompatibility = null;
+            }
             if (packetListener != null && PacketEvents.getAPI() != null) {
                 PacketEvents.getAPI().getEventManager().unregisterListener(packetListener);
                 packetListener = null;

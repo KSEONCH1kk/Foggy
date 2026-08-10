@@ -1,6 +1,6 @@
 # Version support
 
-Foggy 2.0.1 is distributed as one Java 8-compatible JAR. Runtime capabilities—not class linkage
+Foggy 2.1.0 is distributed as one Java 8-compatible JAR. Runtime capabilities—not class linkage
 to one Bukkit revision—select the scheduler, geometry and packet implementation.
 
 | Server line | Support | Server JVM | Geometry source | Player spawn packet |
@@ -37,6 +37,9 @@ Java 8 merely because Foggy uses Java 8 bytecode.
 - Debug action bars use chat `GAME_INFO` on 1.8–1.15, chat `GAME_INFO` with sender UUID on 1.16,
   and the dedicated action-bar packet only on 1.17+. Sending that newer packet to protocol 47
   resolves to invalid packet id `-1` and disconnects the client.
+- GSit is a soft dependency. Passenger packets are handled generically on 1.9+, while the optional
+  reflective pose bridge is activated only when GSit's documented pose events and renderer
+  internals are present. Foggy retains no static GSit linkage on 1.8 or without GSit.
 - The plugin descriptor intentionally has no `api-version`: 1.8 cannot consume a modern API
   declaration. Modern Paper can print a legacy-plugin warning and perform its compatibility setup
   during startup; this does not reintroduce Bukkit ray tracing into the hot path.
@@ -50,10 +53,11 @@ The release candidate was exercised with official Paper artifacts and PacketEven
 | Paper 1.8.8 build 445 / Java 8 | load, reload, exact native shapes (`fallback=0`), protocol-47 chat-position-2 debug and particles, two-client directed destroy and `SpawnPlayer` restore |
 | Paper 1.16.5 build 794 / Java 16 | load, reload, exact native `VoxelShape` bridge (`fallback=0`), UUID chat-position-2 debug and PacketEvents particles |
 | Paper 1.20.6 build 151 / Java 21 | load, reload, exact shapes, two-client directed destroy and player `SpawnEntity` restore |
+| Paper 1.20.6 build 151 / Java 21 + GSit 3.5.1 | `/lay` seat/passenger/fake-player creation, wall hide, same-tick passenger and pose-NPC restore, pose teardown |
 | Paper 1.21.4 build 232 / Java 21 | load, reload, two-client debug, exact `VoxelShape` boxes (`fallback=0`) |
 | Paper 26.1.2 build 74 / Java 25 | load, reload, current Craft state/level access, exact shapes (`fallback=0`) |
 | Paper 26.2 build 111 / Java 25 | load plus direct compensated-world probe (`bridgeUnavailable=false`, `fallback=0`) |
-| Folia 26.2 build 1 / Java 25 | load, entity/global scheduler execution and owned-region shape probe (`fallback=0`) |
+| Folia 26.2 build 1 / Java 25 | load, entity/global scheduler execution, owned-region shape probe (`fallback=0`), GSit 3.5.1 bridge load and clean shutdown |
 
 The representative-build matrix verifies the compatibility gates; it does not claim that every
 third-party fork preserves CraftBukkit internals. `/foggy debug status` exposes bridge failures and

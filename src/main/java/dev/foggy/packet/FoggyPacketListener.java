@@ -23,7 +23,9 @@ import com.github.retrooper.packetevents.wrapper.play.server.WrapperPlayServerEn
 import com.github.retrooper.packetevents.wrapper.play.server.WrapperPlayServerEntityVelocity;
 import com.github.retrooper.packetevents.wrapper.play.server.WrapperPlayServerHurtAnimation;
 import com.github.retrooper.packetevents.wrapper.play.server.WrapperPlayServerRemoveEntityEffect;
+import com.github.retrooper.packetevents.wrapper.play.server.WrapperPlayServerSetPassengers;
 import com.github.retrooper.packetevents.wrapper.play.server.WrapperPlayServerSpawnEntity;
+import com.github.retrooper.packetevents.wrapper.play.server.WrapperPlayServerSpawnLivingEntity;
 import com.github.retrooper.packetevents.wrapper.play.server.WrapperPlayServerSpawnPlayer;
 import com.github.retrooper.packetevents.wrapper.play.server.WrapperPlayServerUpdateAttributes;
 import org.bukkit.entity.Player;
@@ -62,6 +64,24 @@ public final class FoggyPacketListener extends PacketListenerAbstract {
         if (type == PacketType.Play.Server.SPAWN_PLAYER) {
             int entityId = new WrapperPlayServerSpawnPlayer(event).getEntityId();
             event.setCancelled(controller.onServerSpawn(viewer, entityId));
+            return;
+        }
+        if (type == PacketType.Play.Server.SPAWN_LIVING_ENTITY) {
+            int entityId = new WrapperPlayServerSpawnLivingEntity(event).getEntityId();
+            event.setCancelled(controller.onServerSpawn(viewer, entityId));
+            return;
+        }
+        if (type == PacketType.Play.Server.SET_PASSENGERS) {
+            WrapperPlayServerSetPassengers passengers = new WrapperPlayServerSetPassengers(event);
+            if (controller.isHidden(viewer, passengers.getEntityId())) {
+                event.setCancelled(true);
+                return;
+            }
+            int[] original = passengers.getPassengers();
+            int[] visible = controller.visiblePassengers(viewer, original);
+            if (visible != original) {
+                passengers.setPassengers(visible);
+            }
             return;
         }
         int entityId = targetEntityId(type, event);

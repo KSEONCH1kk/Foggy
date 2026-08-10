@@ -4,6 +4,7 @@ main: dev.foggy.FoggyPlugin
 authors: [Foggy]
 description: Per-viewer player visibility control implemented with PacketEvents.
 depend: [packetevents]
+softdepend: [GSit]
 folia-supported: true
 commands:
   foggy:

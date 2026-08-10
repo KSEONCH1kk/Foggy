@@ -22,6 +22,7 @@
 - live-reload transfer of a previously hidden pair state.
 - protocol-gated debug action-bar transport: legacy chat on 1.8, UUID chat on 1.16 and the
   dedicated packet from 1.17 onward.
+- GSit renderer reflection discovery, related-entity reassignment and hidden-passenger filtering.
 
 `./gradlew loadTest` runs a deterministic 200-player, 20-iteration synthetic pair/ray workload and
 prints checks/second. Override population with `-Dfoggy.load.players=N`. It intentionally asserts
@@ -76,6 +77,14 @@ The 1.8.8 debug regression test additionally enables `/foggy debug` for a protoc
 viewer received chat position `2` plus 2,200 valid particle packets, with no packet id `-1`,
 partial-packet warning or unexpected disconnect. The 1.16.5 branch likewise produced position `2`
 with the required zero sender UUID and 4,026 valid particle packets.
+
+The GSit 3.5.1 integration run on Paper 1.20.6 created a `/lay` pose with real player id `24`, seat
+id `26` and fake-player id `27`. A wall transition removed the fake profile/NPC and real player;
+the clear transition restored the real player, `26 → 24` passenger link and fake pose NPC in one
+tick. Creating the pose while the player was already hidden filtered the seat passenger list to
+empty and removed GSit's profile/NPC packets again in the same tick; clearing the wall then
+restored the real player, passenger link and pose renderer together. The final pose teardown
+removed both NPC and seat without a ghost or duplicate destroy.
 
 Repeated release runs of the 200-player sample performed 243,400 checks in 181–210 ms (about
 1.16–1.34 million checks/second) on the test host. This synthetic figure is a regression signal,
