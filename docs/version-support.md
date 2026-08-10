@@ -1,6 +1,6 @@
 # Version support
 
-Foggy 2.0.0 is distributed as one Java 8-compatible JAR. Runtime capabilities—not class linkage
+Foggy 2.0.1 is distributed as one Java 8-compatible JAR. Runtime capabilities—not class linkage
 to one Bukkit revision—select the scheduler, geometry and packet implementation.
 
 | Server line | Support | Server JVM | Geometry source | Player spawn packet |
@@ -34,6 +34,9 @@ Java 8 merely because Foggy uses Java 8 bytecode.
   level, position, `VoxelShape` and AABB methods. Resolved handles are cached outside the ray loop.
 - PacketEvents server-version gates select `SpawnPlayer` before 1.20.2 and player-typed
   `SpawnEntity` afterward. Offhand/passengers are omitted before 1.9 and scale before 1.20.5.
+- Debug action bars use chat `GAME_INFO` on 1.8–1.15, chat `GAME_INFO` with sender UUID on 1.16,
+  and the dedicated action-bar packet only on 1.17+. Sending that newer packet to protocol 47
+  resolves to invalid packet id `-1` and disconnects the client.
 - The plugin descriptor intentionally has no `api-version`: 1.8 cannot consume a modern API
   declaration. Modern Paper can print a legacy-plugin warning and perform its compatibility setup
   during startup; this does not reintroduce Bukkit ray tracing into the hot path.
@@ -44,8 +47,8 @@ The release candidate was exercised with official Paper artifacts and PacketEven
 
 | Runtime | Verification |
 | --- | --- |
-| Paper 1.8.8 build 445 / Java 8 | load, reload, exact native shapes (`fallback=0`), particles, two-client directed destroy and `SpawnPlayer` restore |
-| Paper 1.16.5 build 794 / Java 16 | load, reload, exact native `VoxelShape` bridge (`fallback=0`), PacketEvents particles |
+| Paper 1.8.8 build 445 / Java 8 | load, reload, exact native shapes (`fallback=0`), protocol-47 chat-position-2 debug and particles, two-client directed destroy and `SpawnPlayer` restore |
+| Paper 1.16.5 build 794 / Java 16 | load, reload, exact native `VoxelShape` bridge (`fallback=0`), UUID chat-position-2 debug and PacketEvents particles |
 | Paper 1.20.6 build 151 / Java 21 | load, reload, exact shapes, two-client directed destroy and player `SpawnEntity` restore |
 | Paper 1.21.4 build 232 / Java 21 | load, reload, two-client debug, exact `VoxelShape` boxes (`fallback=0`) |
 | Paper 26.1.2 build 74 / Java 25 | load, reload, current Craft state/level access, exact shapes (`fallback=0`) |

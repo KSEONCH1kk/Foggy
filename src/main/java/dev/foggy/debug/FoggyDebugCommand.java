@@ -2,12 +2,17 @@ package dev.foggy.debug;
 
 import com.github.retrooper.packetevents.PacketEvents;
 import com.github.retrooper.packetevents.manager.server.ServerVersion;
+import com.github.retrooper.packetevents.wrapper.PacketWrapper;
+import com.github.retrooper.packetevents.protocol.chat.ChatTypes;
+import com.github.retrooper.packetevents.protocol.chat.message.ChatMessageLegacy;
+import com.github.retrooper.packetevents.protocol.chat.message.ChatMessage_v1_16;
 import com.github.retrooper.packetevents.protocol.particle.Particle;
 import com.github.retrooper.packetevents.protocol.particle.data.ParticleDustData;
 import com.github.retrooper.packetevents.protocol.particle.type.ParticleTypes;
 import com.github.retrooper.packetevents.util.Vector3d;
 import com.github.retrooper.packetevents.util.Vector3f;
 import com.github.retrooper.packetevents.wrapper.play.server.WrapperPlayServerActionBar;
+import com.github.retrooper.packetevents.wrapper.play.server.WrapperPlayServerChatMessage;
 import com.github.retrooper.packetevents.wrapper.play.server.WrapperPlayServerParticle;
 import dev.foggy.FoggyPlugin;
 import dev.foggy.camera.CameraEstimator;
@@ -534,8 +539,44 @@ public final class FoggyDebugCommand implements CommandExecutor, TabCompleter {
     }
 
     private static void sendActionBar(Player player, Component component) {
+        ServerVersion version = PacketEvents.getAPI().getServerManager().getVersion();
         PacketEvents.getAPI().getPlayerManager().sendPacketSilently(
-                player, new WrapperPlayServerActionBar(component));
+                player, actionBarPacket(version, component));
+    }
+
+    static PacketWrapper<?> actionBarPacket(ServerVersion version, Component component) {
+        ActionBarTransport transport = actionBarTransport(version);
+        if (transport == ActionBarTransport.LEGACY_CHAT) {
+            // Through 1.15 the action bar is ClientboundChat (0x02 on protocol 47) with
+            // position/GAME_INFO=2. WrapperPlayServerActionBar represents the dedicated packet
+            // introduced in 1.17 and resolves to packet id -1 on these clients, which disconnects
+            // vanilla 1.8 with "Error while read".
+            return new WrapperPlayServerChatMessage(
+                    new ChatMessageLegacy(component, ChatTypes.GAME_INFO));
+        }
+        if (transport == ActionBarTransport.CHAT_1_16) {
+            // 1.16 added the sender UUID to ClientboundChat but still uses GAME_INFO for action bar.
+            return new WrapperPlayServerChatMessage(
+                    new ChatMessage_v1_16(component, ChatTypes.GAME_INFO,
+                            new UUID(0L, 0L)));
+        }
+        return new WrapperPlayServerActionBar(component);
+    }
+
+    static ActionBarTransport actionBarTransport(ServerVersion version) {
+        if (version.isOlderThan(ServerVersion.V_1_16)) {
+            return ActionBarTransport.LEGACY_CHAT;
+        }
+        if (version.isOlderThan(ServerVersion.V_1_17)) {
+            return ActionBarTransport.CHAT_1_16;
+        }
+        return ActionBarTransport.DEDICATED;
+    }
+
+    enum ActionBarTransport {
+        LEGACY_CHAT,
+        CHAT_1_16,
+        DEDICATED
     }
 
     private static ChatColor legacyColor(NamedTextColor color) {

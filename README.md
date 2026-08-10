@@ -28,7 +28,7 @@ version-aware PacketEvents packets.
 
 1. Run a supported server on the Java version that server requires.
 2. Install the standalone PacketEvents 2.13.0 Spigot plugin.
-3. Copy `Foggy-2.0.0.jar` to `plugins/`.
+3. Copy `Foggy-2.0.1.jar` to `plugins/`.
 4. Start the server, edit `plugins/Foggy/config.yml`, then use `/foggy reload`.
 
 Foggy itself is Java 8 bytecode. This does **not** change the JVM required by the server: for
@@ -46,7 +46,7 @@ without statically linking modern-only Bukkit classes.
 ./gradlew loadTest
 ```
 
-The distributable is `build/libs/Foggy-2.0.0.jar`. Paper/Spigot and PacketEvents are
+The distributable is `build/libs/Foggy-2.0.1.jar`. Paper/Spigot and PacketEvents are
 `compileOnly`; they are not shaded. `check` also rejects any class newer than Java 8 classfile
 major version 52.
 

@@ -5,7 +5,7 @@ plugins {
 }
 
 group = "dev.foggy"
-version = "2.0.0"
+version = "2.0.1"
 
 repositories {
     mavenCentral()
@@ -21,6 +21,7 @@ dependencies {
     testImplementation(platform("org.junit:junit-bom:5.11.4"))
     testImplementation("org.junit.jupiter:junit-jupiter")
     testImplementation("org.spigotmc:spigot-api:1.8.8-R0.1-SNAPSHOT")
+    testImplementation("com.github.retrooper:packetevents-spigot:2.13.0")
     testRuntimeOnly("org.junit.platform:junit-platform-launcher")
 }
 

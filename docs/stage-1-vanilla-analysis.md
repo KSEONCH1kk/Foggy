@@ -163,7 +163,7 @@ BlockHitResult VoxelShape.clip(Vec3 from, Vec3 to, BlockPos pos)
 `BlockGetter.clip` traverses grid cells along the segment, gets the chosen block and fluid voxel
 shapes, clips both, and returns the nearer hit. Foggy requests no fluid collisions and samples
 multiple target hitbox points. Paper's `ignorePassableBlocks=false` mapping to
-`ClipContext.Block.OUTLINE` was the reference implementation. Foggy 2.0.0 mirrors the decompiled
+`ClipContext.Block.OUTLINE` was the reference implementation. Foggy 2.0.1 mirrors the decompiled
 `BlockGetter#traverseBlocks` DDA (including its `-1e-7` boundary lerp and axis tie order) and
 `VoxelShape#clip` (including the `from + delta*0.001` inside test) directly. It extracts every
 OUTLINE/COLLIDER AABB from the live state once into `CompensatedWorld`; hot rays do not allocate an

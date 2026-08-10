@@ -20,6 +20,8 @@
 - vanilla-invisibility disposition: preserve entity for equipment/hits, with hard-hide priority;
 - concurrent snapshot-grid world/radius filtering, negative cells and moving-cell replacement;
 - live-reload transfer of a previously hidden pair state.
+- protocol-gated debug action-bar transport: legacy chat on 1.8, UUID chat on 1.16 and the
+  dedicated packet from 1.17 onward.
 
 `./gradlew loadTest` runs a deterministic 200-player, 20-iteration synthetic pair/ray workload and
 prints checks/second. Override population with `-Dfoggy.load.players=N`. It intentionally asserts
@@ -69,6 +71,11 @@ Two-client packet timing was measured on both ends of the packet gate. On Paper 
 produced directed `DestroyEntities` after 81 ms and survival produced `SpawnPlayer` after 95 ms.
 On Paper 1.20.6, the corresponding samples were 46 ms and 96 ms with player `SpawnEntity`. These
 include tick and local client scheduling and demonstrate that no extra show debounce is applied.
+
+The 1.8.8 debug regression test additionally enables `/foggy debug` for a protocol-47 viewer. The
+viewer received chat position `2` plus 2,200 valid particle packets, with no packet id `-1`,
+partial-packet warning or unexpected disconnect. The 1.16.5 branch likewise produced position `2`
+with the required zero sender UUID and 4,026 valid particle packets.
 
 Repeated release runs of the 200-player sample performed 243,400 checks in 181–210 ms (about
 1.16–1.34 million checks/second) on the test host. This synthetic figure is a regression signal,
