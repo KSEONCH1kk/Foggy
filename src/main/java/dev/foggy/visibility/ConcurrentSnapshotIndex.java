@@ -1,6 +1,8 @@
 package dev.foggy.visibility;
 
 import java.util.HashMap;
+import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -86,7 +88,7 @@ public final class ConcurrentSnapshotIndex {
                 }
             }
         }
-        return List.copyOf(result.values());
+        return Collections.unmodifiableList(new ArrayList<PlayerVisibilitySnapshot>(result.values()));
     }
 
     /** Clears all plugin-owned immutable state. */
@@ -113,6 +115,26 @@ public final class ConcurrentSnapshotIndex {
         }
     }
 
-    private record CellKey(UUID worldId, int x, int z) {
+    private static final class CellKey {
+        private final UUID worldId;
+        private final int x;
+        private final int z;
+
+        private CellKey(UUID worldId, int x, int z) {
+            this.worldId = worldId; this.x = x; this.z = z;
+        }
+
+        @Override public boolean equals(Object other) {
+            if (this == other) return true;
+            if (!(other instanceof CellKey)) return false;
+            CellKey key = (CellKey) other;
+            return x == key.x && z == key.z && worldId.equals(key.worldId);
+        }
+
+        @Override public int hashCode() {
+            int result = worldId.hashCode();
+            result = 31 * result + x;
+            return 31 * result + z;
+        }
     }
 }

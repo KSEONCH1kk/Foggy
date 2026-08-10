@@ -1,23 +1,26 @@
 package dev.foggy.invisibility;
 
+import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 
-/**
- * Immutable target-owned invisibility signals captured on the target's entity scheduler.
- *
- * @param potionEffect target has the vanilla invisibility effect
- * @param entityInvisibleFlag target metadata invisible flag is set
- * @param spectator target is currently a spectator
- * @param vanishHooks optional vanish APIs that reported this target hidden
- */
-public record TargetInvisibilityState(
-        boolean potionEffect,
-        boolean entityInvisibleFlag,
-        boolean spectator,
-        List<String> vanishHooks
-) {
-    /** Defensively freezes hook names for cross-region publication. */
-    public TargetInvisibilityState {
-        vanishHooks = List.copyOf(vanishHooks);
+/** Immutable target-owned invisibility signals captured on its owning scheduler. */
+public final class TargetInvisibilityState {
+    private final boolean potionEffect;
+    private final boolean entityInvisibleFlag;
+    private final boolean spectator;
+    private final List<String> vanishHooks;
+
+    public TargetInvisibilityState(boolean potionEffect, boolean entityInvisibleFlag,
+                                   boolean spectator, List<String> vanishHooks) {
+        this.potionEffect = potionEffect;
+        this.entityInvisibleFlag = entityInvisibleFlag;
+        this.spectator = spectator;
+        this.vanishHooks = Collections.unmodifiableList(new ArrayList<String>(vanishHooks));
     }
+
+    public boolean potionEffect() { return potionEffect; }
+    public boolean entityInvisibleFlag() { return entityInvisibleFlag; }
+    public boolean spectator() { return spectator; }
+    public List<String> vanishHooks() { return vanishHooks; }
 }

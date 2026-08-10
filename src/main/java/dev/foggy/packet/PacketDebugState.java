@@ -1,17 +1,22 @@
 package dev.foggy.packet;
 
-/**
- * Per-viewer PacketEvents state shown by the debug command.
- *
- * @param hiddenId target id is suppressed by Foggy's packet listener
- * @param observedTracked target id was observed in an ordinary server spawn
- * @param clientKnown Foggy believes the client currently owns the entity
- * @param paperTracked Paper's entity tracker currently includes the viewer
- */
-public record PacketDebugState(
-        boolean hiddenId,
-        boolean observedTracked,
-        boolean clientKnown,
-        boolean paperTracked
-) {
+/** Immutable per-viewer PacketEvents state shown by the debug command. */
+public final class PacketDebugState {
+    private final boolean hiddenId;
+    private final boolean observedTracked;
+    private final boolean clientKnown;
+    private final boolean paperTracked;
+
+    public PacketDebugState(boolean hiddenId, boolean observedTracked,
+                            boolean clientKnown, boolean paperTracked) {
+        this.hiddenId = hiddenId;
+        this.observedTracked = observedTracked;
+        this.clientKnown = clientKnown;
+        this.paperTracked = paperTracked;
+    }
+
+    public boolean hiddenId() { return hiddenId; }
+    public boolean observedTracked() { return observedTracked; }
+    public boolean clientKnown() { return clientKnown; }
+    public boolean paperTracked() { return paperTracked; }
 }

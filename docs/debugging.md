@@ -45,7 +45,7 @@ Debug работает от лица наблюдателя: войдите те
 | `paperTracked` | Paper entity tracker включает viewer для этой цели |
 | `cache.pairHit/pairMiss` | Попадания/промахи кэша неизменившегося optical-решения пары |
 | `cache.cells/cellHit/refresh` | Число sparse block cells, повторных чтений и холодных/validation обновлений |
-| `cache.fallback` | Должно быть `0`; больше нуля означает fallback на Bukkit ray из-за несовместимого NMS bridge |
+| `cache.fallback` | Должно быть `0`; больше нуля означает консервативный локальный full-cube fallback из-за несовместимого NMS bridge |
 
 Для полностью скрытой стеной цели ожидается:
 

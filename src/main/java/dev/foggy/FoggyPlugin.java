@@ -9,6 +9,7 @@ import dev.foggy.invisibility.InvisibilityTracker;
 import dev.foggy.listener.FoggyListener;
 import dev.foggy.packet.FoggyPacketListener;
 import dev.foggy.packet.PacketVisibilityController;
+import dev.foggy.platform.PlatformAdapter;
 import dev.foggy.raycast.CompensatedRaycastService;
 import dev.foggy.raycast.CompensatedWorld;
 import dev.foggy.raycast.CompensatedWorldListener;
@@ -31,6 +32,7 @@ public final class FoggyPlugin extends JavaPlugin {
     private FoggyListener bukkitListener;
     private CompensatedWorldListener compensatedWorldListener;
     private CompensatedWorld compensatedWorld;
+    private PlatformAdapter platform;
     private String companionChannel;
     private FoggyConfig activeSettings;
 
@@ -40,6 +42,7 @@ public final class FoggyPlugin extends JavaPlugin {
 
     @Override
     public void onEnable() {
+        platform = new PlatformAdapter(this);
         saveDefaultConfig();
         final FoggyConfig settings;
         try {
@@ -58,8 +61,9 @@ public final class FoggyPlugin extends JavaPlugin {
             getServer().getPluginManager().disablePlugin(this);
             return;
         }
-        getLogger().info("Foggy " + getPluginMeta().getVersion()
-                + " enabled for Paper/Folia 1.21.4 / PacketEvents 2.13.0");
+        getLogger().info("Foggy " + getDescription().getVersion()
+                + " enabled on " + getServer().getBukkitVersion() + " using " + platform.description()
+                + " / PacketEvents " + PacketEvents.getAPI().getVersion());
     }
 
     @Override
@@ -76,7 +80,7 @@ public final class FoggyPlugin extends JavaPlugin {
      * @param callback receives the reload outcome on the global region
      */
     public void reloadRuntime(Consumer<ReloadResult> callback) {
-        getServer().getGlobalRegionScheduler().execute(this, () -> callback.accept(reloadRuntimeNow()));
+        platform.runGlobal(() -> callback.accept(reloadRuntimeNow()));
     }
 
     private ReloadResult reloadRuntimeNow() {
@@ -129,13 +133,14 @@ public final class FoggyPlugin extends JavaPlugin {
 
         TargetPointSampler pointSampler = new TargetPointSampler(settings);
         if (packetController == null) {
-            packetController = new PacketVisibilityController(this, getLogger());
+            packetController = new PacketVisibilityController(this, getLogger(), platform);
         }
-        compensatedWorld = new CompensatedWorld(settings, getLogger());
+        compensatedWorld = new CompensatedWorld(settings, getLogger(), platform);
         VanillaBlockRaycaster blockRaycaster = new VanillaBlockRaycaster(settings, compensatedWorld);
-        CameraEstimator cameraEstimator = new CameraEstimator(settings, companion, blockRaycaster);
-        CompensatedRaycastService raycastService = new CompensatedRaycastService(settings, blockRaycaster);
-        InvisibilityTracker invisibilityTracker = new InvisibilityTracker(settings, getLogger());
+        CameraEstimator cameraEstimator = new CameraEstimator(settings, companion, blockRaycaster, platform);
+        CompensatedRaycastService raycastService = new CompensatedRaycastService(
+                settings, blockRaycaster, platform);
+        InvisibilityTracker invisibilityTracker = new InvisibilityTracker(settings, getLogger(), platform);
         visibilityEngine = new VisibilityEngine(
                 this,
                 settings,
@@ -143,10 +148,12 @@ public final class FoggyPlugin extends JavaPlugin {
                 raycastService,
                 invisibilityTracker,
                 packetController,
-                pointSampler);
+                pointSampler,
+                platform);
 
         debugCommand = new FoggyDebugCommand(
-                this, cameraEstimator, raycastService, invisibilityTracker, visibilityEngine, packetController);
+                this, cameraEstimator, raycastService, invisibilityTracker, visibilityEngine, packetController,
+                platform);
         visibilityEngine.setViewerTickHook(debugCommand::tickViewer);
         PluginCommand foggyCommand = getCommand("foggy");
         if (foggyCommand == null) {
@@ -163,6 +170,7 @@ public final class FoggyPlugin extends JavaPlugin {
         getServer().getPluginManager().registerEvents(bukkitListener, this);
         compensatedWorldListener = new CompensatedWorldListener(compensatedWorld);
         getServer().getPluginManager().registerEvents(compensatedWorldListener, this);
+        compensatedWorldListener.registerOptionalEvents(this);
         visibilityEngine.start(getServer().getOnlinePlayers());
         activeSettings = settings;
     }
@@ -209,12 +217,23 @@ public final class FoggyPlugin extends JavaPlugin {
         }
     }
 
-    /**
-     * Result of a live runtime reload.
-     *
-     * @param success whether the new configuration is active
-     * @param message concise operator-facing explanation
-     */
-    public record ReloadResult(boolean success, String message) {
+    /** Result of a live runtime reload. */
+    public static final class ReloadResult {
+        private final boolean success;
+        private final String message;
+
+        /**
+         * Creates a reload result.
+         *
+         * @param success whether the new configuration is active
+         * @param message concise operator-facing explanation
+         */
+        public ReloadResult(boolean success, String message) {
+            this.success = success;
+            this.message = message;
+        }
+
+        public boolean success() { return success; }
+        public String message() { return message; }
     }
 }

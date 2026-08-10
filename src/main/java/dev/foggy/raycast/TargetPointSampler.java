@@ -1,9 +1,10 @@
 package dev.foggy.raycast;
 
 import dev.foggy.config.FoggyConfig;
+import dev.foggy.math.Aabb;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
-import org.bukkit.util.BoundingBox;
 import org.bukkit.util.Vector;
 
 /** Samples the target hitbox at partial-tick positions, including corners and face centers. */
@@ -27,7 +28,7 @@ public final class TargetPointSampler {
      * @param current current target position
      * @return hitbox point list
      */
-    public List<Vector> sample(BoundingBox currentBox, Vector previous, Vector current) {
+    public List<Vector> sample(Aabb currentBox, Vector previous, Vector current) {
         List<Vector> points = new ArrayList<>(config.interpolationSamples() * 11);
         int count = config.interpolationSamples();
         for (int index = 0; index < count; index++) {
@@ -36,18 +37,18 @@ public final class TargetPointSampler {
             Vector shift = interpolated.subtract(current);
             addBoxPoints(points, currentBox, shift);
         }
-        return List.copyOf(points);
+        return Collections.unmodifiableList(points);
     }
 
-    private static void addBoxPoints(List<Vector> output, BoundingBox box, Vector shift) {
-        double insetX = Math.min(0.03, (box.getWidthX() * 0.1));
-        double insetZ = Math.min(0.03, (box.getWidthZ() * 0.1));
-        double minX = box.getMinX() + insetX + shift.getX();
-        double maxX = box.getMaxX() - insetX + shift.getX();
-        double minY = box.getMinY() + 0.02 + shift.getY();
-        double maxY = box.getMaxY() - 0.02 + shift.getY();
-        double minZ = box.getMinZ() + insetZ + shift.getZ();
-        double maxZ = box.getMaxZ() - insetZ + shift.getZ();
+    private static void addBoxPoints(List<Vector> output, Aabb box, Vector shift) {
+        double insetX = Math.min(0.03, (box.widthX() * 0.1));
+        double insetZ = Math.min(0.03, (box.widthZ() * 0.1));
+        double minX = box.minX() + insetX + shift.getX();
+        double maxX = box.maxX() - insetX + shift.getX();
+        double minY = box.minY() + 0.02 + shift.getY();
+        double maxY = box.maxY() - 0.02 + shift.getY();
+        double minZ = box.minZ() + insetZ + shift.getZ();
+        double maxZ = box.maxZ() - insetZ + shift.getZ();
         double centerX = (minX + maxX) * 0.5;
         double centerY = (minY + maxY) * 0.5;
         double centerZ = (minZ + maxZ) * 0.5;

@@ -4,6 +4,8 @@ import com.github.retrooper.packetevents.PacketEvents;
 import com.github.retrooper.packetevents.manager.player.PlayerManager;
 import com.github.retrooper.packetevents.protocol.entity.type.EntityTypes;
 import dev.foggy.visibility.PlayerVisibilitySnapshot;
+import dev.foggy.platform.PlatformAdapter;
+import com.github.retrooper.packetevents.manager.server.ServerVersion;
 import com.github.retrooper.packetevents.wrapper.play.server.WrapperPlayServerDestroyEntities;
 import com.github.retrooper.packetevents.wrapper.play.server.WrapperPlayServerEntityEffect;
 import com.github.retrooper.packetevents.wrapper.play.server.WrapperPlayServerEntityEquipment;
@@ -12,6 +14,7 @@ import com.github.retrooper.packetevents.wrapper.play.server.WrapperPlayServerEn
 import com.github.retrooper.packetevents.wrapper.play.server.WrapperPlayServerEntityVelocity;
 import com.github.retrooper.packetevents.wrapper.play.server.WrapperPlayServerSetPassengers;
 import com.github.retrooper.packetevents.wrapper.play.server.WrapperPlayServerSpawnEntity;
+import com.github.retrooper.packetevents.wrapper.play.server.WrapperPlayServerSpawnPlayer;
 import com.github.retrooper.packetevents.wrapper.play.server.WrapperPlayServerUpdateAttributes;
 import java.util.List;
 import java.util.Map;
@@ -20,7 +23,6 @@ import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.logging.Level;
 import java.util.logging.Logger;
-import org.bukkit.Bukkit;
 import org.bukkit.entity.Player;
 import org.bukkit.plugin.Plugin;
 
@@ -33,8 +35,8 @@ import org.bukkit.plugin.Plugin;
  * listener while ordinary server updates to hidden ids are cancelled per viewer.</p>
  */
 public final class PacketVisibilityController {
-    private final Plugin plugin;
     private final Logger logger;
+    private final PlatformAdapter platform;
     private final Map<UUID, ViewerPacketState> viewers = new ConcurrentHashMap<>();
 
     /**
@@ -43,9 +45,9 @@ public final class PacketVisibilityController {
      * @param plugin scheduler owner
      * @param logger plugin logger
      */
-    public PacketVisibilityController(Plugin plugin, Logger logger) {
-        this.plugin = plugin;
+    public PacketVisibilityController(Plugin plugin, Logger logger, PlatformAdapter platform) {
         this.logger = logger;
+        this.platform = platform;
     }
 
     /**
@@ -204,25 +206,25 @@ public final class PacketVisibilityController {
         Player handle = target.playerHandle();
         int expectedEntityId = target.entityId();
         UUID viewerId = viewer.getUniqueId();
-        if (Bukkit.isOwnedByCurrentRegion(handle)) {
-            completeSnapshot(viewer, expectedEntityId, PlayerSpawnSnapshot.capture(handle));
+        if (platform.owns(handle)) {
+            completeSnapshot(viewer, expectedEntityId, PlayerSpawnSnapshot.capture(handle, platform));
             return;
         }
-        handle.getScheduler().run(plugin, ignored -> {
+        platform.runEntity(handle, () -> {
             if (!handle.isOnline() || handle.getEntityId() != expectedEntityId) {
                 abortSnapshot(viewerId, expectedEntityId);
                 return;
             }
             final PlayerSpawnSnapshot snapshot;
             try {
-                snapshot = PlayerSpawnSnapshot.capture(handle);
+                snapshot = PlayerSpawnSnapshot.capture(handle, platform);
             } catch (RuntimeException exception) {
                 abortSnapshot(viewerId, expectedEntityId);
                 logger.log(Level.SEVERE, "Could not capture cross-region spawn for " + target.name(), exception);
                 return;
             }
-            viewer.getScheduler().run(plugin,
-                    task -> completeSnapshot(viewer, expectedEntityId, snapshot),
+            platform.runEntity(viewer,
+                    () -> completeSnapshot(viewer, expectedEntityId, snapshot),
                     () -> abortSnapshot(viewerId, expectedEntityId));
         }, () -> abortSnapshot(viewerId, expectedEntityId));
     }
@@ -236,20 +238,26 @@ public final class PacketVisibilityController {
             return;
         }
         try {
-            sendSilently(viewer, new WrapperPlayServerSpawnEntity(
-                    target.entityId(),
-                    target.playerId(),
-                    EntityTypes.PLAYER,
-                    target.location(),
-                    target.location().getYaw(),
-                    0,
-                    target.velocity()));
+            ServerVersion version = PacketEvents.getAPI().getServerManager().getVersion();
+            if (version.isOlderThan(ServerVersion.V_1_20_2)) {
+                sendSilently(viewer, new WrapperPlayServerSpawnPlayer(
+                        target.entityId(), target.playerId(), target.location(), target.metadata()));
+            } else {
+                sendSilently(viewer, new WrapperPlayServerSpawnEntity(
+                        target.entityId(),
+                        target.playerId(),
+                        EntityTypes.PLAYER,
+                        target.location(),
+                        target.location().getYaw(),
+                        0,
+                        target.velocity()));
+            }
 
             sendSilently(viewer, new WrapperPlayServerEntityMetadata(
                     target.entityId(), target.metadata()));
             if (target.scale() != null) {
                 sendSilently(viewer, new WrapperPlayServerUpdateAttributes(
-                        target.entityId(), List.of(target.scale())));
+                        target.entityId(), java.util.Collections.singletonList(target.scale())));
             }
             sendSilently(viewer, new WrapperPlayServerEntityEquipment(target.entityId(), target.equipment()));
             for (PlayerSpawnSnapshot.EffectSnapshot effect : target.effects()) {
@@ -260,7 +268,8 @@ public final class PacketVisibilityController {
                     target.entityId(), target.location().getYaw()));
             sendSilently(viewer, new WrapperPlayServerEntityVelocity(
                     target.entityId(), target.velocity()));
-            if (target.vehicleId() >= 0 && viewerState.trackedIds.contains(target.vehicleId())) {
+            if (version.isNewerThanOrEquals(ServerVersion.V_1_9)
+                    && target.vehicleId() >= 0 && viewerState.trackedIds.contains(target.vehicleId())) {
                 int[] passengerIds = target.passengerIds().stream().mapToInt(Integer::intValue).toArray();
                 sendSilently(viewer, new WrapperPlayServerSetPassengers(target.vehicleId(), passengerIds));
             }

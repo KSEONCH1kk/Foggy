@@ -44,9 +44,10 @@ public final class FoggyPacketListener extends PacketListenerAbstract {
 
     @Override
     public void onPacketSend(PacketSendEvent event) {
-        if (!(event.getPlayer() instanceof Player viewer) || event.isCancelled()) {
+        if (!(event.getPlayer() instanceof Player) || event.isCancelled()) {
             return;
         }
+        Player viewer = (Player) event.getPlayer();
         PacketTypeCommon type = event.getPacketType();
         if (type == PacketType.Play.Server.DESTROY_ENTITIES) {
             int[] ids = new WrapperPlayServerDestroyEntities(event).getEntityIds();

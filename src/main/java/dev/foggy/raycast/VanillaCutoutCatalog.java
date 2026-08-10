@@ -6,10 +6,11 @@ import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.nio.charset.StandardCharsets;
 import java.util.Set;
+import java.util.Collections;
 import java.util.stream.Collectors;
 
 /**
- * Vanilla 1.21.4 blocks registered in the client's CUTOUT, CUTOUT_MIPPED or TRIPWIRE layer.
+ * Vanilla cutout blocks registered in the client's CUTOUT, CUTOUT_MIPPED or TRIPWIRE layer.
  *
  * <p>The resource is extracted from Mojang {@code ItemBlockRenderTypes} rather than inferred from
  * Bukkit collision flags. {@code GRASS_BLOCK} and {@code CACTUS} are intentionally excluded: their
@@ -29,7 +30,7 @@ public final class VanillaCutoutCatalog {
      * @return true for a catalog entry
      */
     public static boolean contains(String materialName) {
-        return MATERIALS.contains(materialName);
+        return MATERIALS.contains(materialName) || legacyOrFutureCutout(materialName);
     }
 
     /**
@@ -41,16 +42,46 @@ public final class VanillaCutoutCatalog {
         return MATERIALS.size();
     }
 
+    /**
+     * Name-stable conservative families cover legacy pre-flattening names and blocks added after
+     * the bundled 1.21.4 client table plus legacy and future material families. These blocks are
+     * intentionally pass-through: server-side
+     * voxel geometry cannot represent holes in their alpha-tested textures.
+     */
+    private static boolean legacyOrFutureCutout(String name) {
+        if (name.equals("PISTON_HEAD")) {
+            return false;
+        }
+        return name.equals("FENCE") || name.equals("NETHER_FENCE") || name.equals("FENCE_GATE")
+                || name.equals("COBBLE_WALL") || name.equals("WOODEN_DOOR")
+                || name.equals("IRON_DOOR_BLOCK") || name.equals("TRAP_DOOR")
+                || name.equals("SIGN") || name.equals("SIGN_POST") || name.equals("WALL_SIGN")
+                || name.equals("SKULL") || name.equals("THIN_GLASS") || name.equals("IRON_FENCE")
+                || name.equals("LONG_GRASS") || name.equals("DOUBLE_PLANT") || name.equals("WEB")
+                || name.equals("RED_ROSE") || name.equals("YELLOW_FLOWER")
+                || name.equals("CROPS") || name.equals("NETHER_WARTS")
+                || name.endsWith("_DOOR") || name.endsWith("_TRAPDOOR")
+                || name.endsWith("_FENCE") || name.endsWith("_FENCE_GATE")
+                || name.endsWith("_SIGN") || name.endsWith("_HANGING_SIGN")
+                || name.endsWith("_SAPLING") || name.endsWith("_FLOWER")
+                || name.endsWith("_MUSHROOM") || name.endsWith("_TORCH")
+                || name.endsWith("_BUTTON") || name.endsWith("_PRESSURE_PLATE")
+                || name.endsWith("_HEAD") || name.endsWith("_SKULL")
+                || name.endsWith("_BARS") || name.endsWith("_PANE")
+                || name.equals("LADDER") || name.equals("VINE") || name.equals("COBWEB")
+                || name.contains("RAIL") || name.startsWith("TRIPWIRE");
+    }
+
     private static Set<String> load() {
         InputStream stream = VanillaCutoutCatalog.class.getResourceAsStream(RESOURCE);
         if (stream == null) {
             throw new ExceptionInInitializerError("Missing " + RESOURCE);
         }
         try (BufferedReader reader = new BufferedReader(new InputStreamReader(stream, StandardCharsets.UTF_8))) {
-            return reader.lines()
+            return Collections.unmodifiableSet(reader.lines()
                     .map(String::trim)
                     .filter(line -> !line.isEmpty() && !line.startsWith("#"))
-                    .collect(Collectors.toUnmodifiableSet());
+                    .collect(Collectors.toSet()));
         } catch (IOException exception) {
             throw new ExceptionInInitializerError(exception);
         }

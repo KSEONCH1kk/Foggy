@@ -1,150 +1,139 @@
 # Foggy
 
-Foggy is a per-viewer player visibility plugin for **Paper/Folia 1.21.4**, **Java 21** and
-**PacketEvents 2.13.0**. It never calls `Player#hidePlayer`: client entities are removed and
-restored through PacketEvents packets for one viewer at a time.
+Foggy is a per-viewer player visibility plugin for one broad-compatible server JAR:
+
+- Spigot/Paper 1.8.x (the server release is 1.8.8; 1.8.9 clients use the same protocol 47);
+- Spigot/Paper 1.16.x through 1.21.x;
+- Paper/Folia 26.1 and newer.
+
+It requires the standalone **PacketEvents 2.13.0** plugin. Foggy never calls
+`Player#hidePlayer`: it removes and restores the client entity for one viewer at a time through
+version-aware PacketEvents packets.
 
 ## What it does
 
-- fully hides a target that is vanished, in spectator mode, outside every plausible FOV, or
-  occluded by complete block-state OUTLINE voxel shapes;
-- keeps ordinary potion/metadata-invisible entities client-side so vanilla can render their
-  armor and held items and retain attack interaction while hiding the player body;
-- evaluates every directed nearby pair from the viewer's repeating `EntityScheduler` task;
-- restores visibility without show-side debounce by sending `SpawnEntity` plus current metadata,
-  scale, equipment, potion effects, head rotation, velocity and passenger state in one flush;
-- models partial-tick target motion using previous/current hitboxes;
-- uses `CompensatedEntities`, an O(n) spatial grid, and sends packets only when a cached pair
-  changes state;
-- uses a sparse `CompensatedWorld`: Mojang-equivalent DDA and exact cached OUTLINE/COLLIDER boxes,
-  with no `CraftWorld#rayTraceBlocks` call on the normal hot path;
-- accepts optional F5/FOV/camera-offset telemetry on `foggy:camera`.
+- hard-hides vanished and spectator targets, or targets occluded from every plausible camera;
+- preserves ordinary potion/metadata-invisible entities so armor, held items and attack hitboxes
+  keep working exactly as vanilla intends;
+- restores visibility immediately, without show-side debounce;
+- uses a sparse `CompensatedWorld` and `CompensatedEntities` spatial index instead of calling
+  `CraftWorld#rayTraceBlocks` for every ray;
+- caches every block state's complete native geometry: the collision AABB collector on 1.8 and
+  `VoxelShape` boxes on 1.16+;
+- conservatively passes transparent and cutout blocks whose texture/model holes cannot be
+  represented by server collision geometry;
+- accepts optional exact F5/FOV/camera telemetry on `foggy:camera`.
 
 ## Installation
 
-1. Run Paper or Folia 1.21.4 on Java 21.
+1. Run a supported server on the Java version that server requires.
 2. Install the standalone PacketEvents 2.13.0 Spigot plugin.
-3. Copy `Foggy-1.2.0.jar` to `plugins/`.
-4. Start once, edit `plugins/Foggy/config.yml`, then run `/foggy reload` or restart.
+3. Copy `Foggy-2.0.0.jar` to `plugins/`.
+4. Start the server, edit `plugins/Foggy/config.yml`, then use `/foggy reload`.
 
-PacketEvents is a hard dependency (`depend: [packetevents]`). Foggy declares
-`folia-supported: true`; it has no Bukkit global-tick task. Player state is captured by that
-player's `EntityScheduler`, global reload/lifecycle work uses `GlobalRegionScheduler`, and only
-immutable snapshots cross region boundaries. See [`docs/folia.md`](docs/folia.md) for the ownership
-model and conservative cross-region ray fallback.
+Foggy itself is Java 8 bytecode. This does **not** change the JVM required by the server: for
+example, 1.8.8 runs on Java 8, 1.16.5 on Java 16, modern 1.20/1.21 on Java 21, and 26.1+ on Java
+25. See the complete [version matrix](docs/version-support.md).
+
+PacketEvents is a hard dependency (`depend: [packetevents]`). `folia-supported: true` is declared.
+The same binary selects classic Bukkit scheduling or Folia entity/global schedulers at runtime,
+without statically linking modern-only Bukkit classes.
 
 ## Build
 
 ```bash
-./gradlew clean test jar
+./gradlew clean test check jar
 ./gradlew loadTest
 ```
 
-The distributable is `build/libs/Foggy-1.2.0.jar`. PacketEvents and Paper are `compileOnly` and are
-not shaded into it.
+The distributable is `build/libs/Foggy-2.0.0.jar`. Paper/Spigot and PacketEvents are
+`compileOnly`; they are not shaded. `check` also rejects any class newer than Java 8 classfile
+major version 52.
 
 ## Configuration
 
-All important tradeoffs are in [`config.yml`](src/main/resources/config.yml): radius, spatial cell,
-fallback FOV, F5 distance/source margin, interpolation samples, compensated-world validation and
-retention, pair-decision cache, transparent/cutout policy and hide confirmation ticks.
-`hide-confirmation-ticks: 1` is the no-delay default. Increasing it affects hiding only; the first
-visible result always sends the spawn snapshot immediately.
+All performance and accuracy controls are in [`config.yml`](src/main/resources/config.yml):
+visibility radius, spatial cell size, fallback FOV/F5 cameras, interpolation samples, world-cache
+validation/retention, optical decision cache, transparent/cutout policy and hide confirmation.
 
-Players with `foggy.bypass` always see managed targets. The permission is not granted by default.
+`hide-confirmation-ticks: 1` hides on the first confirmed pass. Raising it debounces hiding only;
+showing is always immediate. Players with `foggy.bypass` always see managed targets and the
+permission is not granted by default.
 
-`invisibility.preserve-vanilla-entity: true` is the default. Potion invisibility and the ordinary
-entity invisible flag then use vanilla metadata instead of `DestroyEntities`: equipment stays
-visible and the entity remains attackable. Spectator, `Player#canSee=false` and supported vanish
-APIs remain hard packet-hide signals. Set the option to `false` only if legacy full removal for
-ordinary invisibility is explicitly required.
+`invisibility.preserve-vanilla-entity: true` keeps an ordinarily invisible player entity on the
+client. Vanilla metadata hides its body while equipment remains visible and attacks keep working.
+Spectator, `Player#canSee=false` and supported vanish APIs still cause full directed packet hiding.
 
-## Live debug
-
-As an operator, run `/foggy debug <player>`. Foggy prints a full decision snapshot and updates an
-action bar every five ticks. Viewer-only particles show fallback/exact cameras, sampled hitbox
-points, representative block hits and the first clear ray that keeps the target visible.
-
-Useful commands:
+## Commands and live debug
 
 ```text
+/foggy reload
 /foggy debug <player>
 /foggy debug status
 /foggy debug particles on|off
 /foggy debug off
-/foggy reload
 ```
 
-`/foggy reload` is also available from the server console. It validates the complete new
-configuration before replacing the active services. Invalid values are rejected without stopping
-the current runtime; permission `foggy.reload` defaults to operators.
+`/foggy reload` validates the complete replacement configuration before swapping services; an
+invalid file leaves the working runtime intact. It also works from the console.
 
-Полная расшифровка значений и цветов: [`docs/debugging.md`](docs/debugging.md).
+`/foggy debug <player>` shows the decision, camera samples, hitbox samples, world-cache counters,
+shape bridge/fallback state and packet tracking flags. Viewer-only particles draw cameras, target
+points, blockers and the first clear ray. `fallback > 0` in the cache line means that a native
+shape could not be read and should be investigated. Full field/color documentation is in
+[`docs/debugging.md`](docs/debugging.md).
 
-Pay particular attention to `bypass`, `managed`, `engineReason`, `optical`, and the four `packet`
-flags. `bypass=true` means the viewer has `foggy.bypass` and Foggy intentionally never hides a
-target for that viewer. The permission no longer defaults to OP.
+## Geometry and performance
+
+The hot ray path does not use Bukkit `World#rayTraceBlocks`. `CompensatedWorld` performs local
+Mojang-style DDA through sparse cached cells and clips against compact primitive AABBs.
+
+- On 1.8, where `VoxelShape` did not exist, Foggy invokes the native six-argument block collision
+  collector for the exact state and neighboring world context.
+- On 1.16+, it extracts every AABB from the state's native OUTLINE and COLLIDER `VoxelShape`.
+- Cache invalidation follows block events immediately; identity validation also catches direct
+  plugin/NMS writes.
+
+This covers all occupied boxes of stairs, slabs, fences, walls, gates, doors, trapdoors, signs,
+ladders, panes, piston heads and other partial blocks. It is not a single Bukkit bounding box and
+not a full-cube approximation. If a runtime-specific native bridge genuinely cannot initialize,
+Foggy uses a conservative local full-cube fallback—never the profiler-heavy Bukkit ray tracer—and
+exposes the fallback counter in debug output.
+
+Server `VoxelShape` geometry is still not the rendered mesh. Texture alpha, resource-pack models,
+shaders and tiny visual openings are unavailable to an unmodified server. Foggy therefore passes
+configured transparent materials and the bundled vanilla cutout catalog conservatively. Fences
+and gates also pass by default because their rendered holes are finer than server shapes. Selected
+materials can be forced opaque with `raycast.opaque-material-overrides`.
+
+The visibility loop queries `CompensatedEntities` cells near each viewer, so normal pair work is
+O(n·k), where `k` is the nearby population, rather than an unconditional O(n²). A ray stops at its
+first clear target point, and packet wrappers are built only when a cached directed pair changes.
 
 ## Honest limits
 
-An unmodified Minecraft server does not receive the client's perspective, configured FOV,
-framebuffer aspect, zoom-mod state or render partial tick. Foggy's fallback deliberately takes the
-union of first-person, rear-F5 and front-F5 possibilities. This avoids false hiding, but can retain
-a target that the current camera could not actually see. Exact telemetry requires the optional
-companion protocol described in [`docs/companion-protocol.md`](docs/companion-protocol.md).
+An unmodified server does not receive the client's perspective, configured FOV, framebuffer
+aspect, zoom state or render partial tick. The fallback takes the union of first-person, rear-F5
+and front-F5 possibilities. That avoids false hiding, but can retain a target not visible from the
+active camera. Exact values require the [companion protocol](docs/companion-protocol.md).
 
-“The same render frame” cannot be guaranteed by any server-only 20 TPS plugin. On Paper, and for
-players owned by the same Folia region, the decision and destroy packet are produced in the same
-region tick in which Foggy samples the state. A cross-region show needs a target-owned snapshot and
-then a viewer-owned send, so scheduler hand-off can add a region tick. Network latency, client
-packet processing and render frames remain outside the server's control.
+A server-only 20 TPS plugin cannot guarantee a particular client render frame. On classic Paper,
+and within one Folia region, Foggy decides and sends in the same owning tick. Network latency and
+client rendering remain outside server control; cross-region show can require one scheduler
+handoff. Foggy keeps the player-info/tab entry while removing the world entity, so another plugin
+that removes that entry can prevent a later player spawn.
 
-Foggy 1.2.0 no longer invokes Paper's `World#rayTraceBlocks` for normal rays. `CompensatedWorld`
-copies the exact 1.21.4 `BlockGetter#traverseBlocks` boundary math and `VoxelShape#clip` hit math.
-On a cold cell it reads the canonical NMS block-state identity and extracts that state's complete
-OUTLINE/COLLIDER `VoxelShape.toAabbs()` list; subsequent rays use compact primitive boxes. This
-includes every sub-box of oriented stairs, top/bottom/double slabs, fences, walls, panes, signs,
-ladders, trapdoors, doors and other non-full blocks. It is not reduced to
-`Block#getBoundingBox()` or a full cube. Bukkit block events invalidate affected cells immediately,
-and periodic identity validation covers direct plugin/NMS writes. The Bukkit ray is retained only
-as a guarded compatibility fallback if the 1.21.4 runtime shape bridge cannot initialize.
+On Folia, rays execute only when the current region owns the complete chunk corridor. Otherwise
+Foggy returns `REGION_UNOWNED` and keeps the target visible rather than accessing foreign chunks or
+inventing an occluder. See [`docs/folia.md`](docs/folia.md).
 
-Optical transparency is independent of geometry. By default glass, stained/tinted glass, panes,
-ice, leaves and portals do not terminate visibility rays. Foggy also bundles the 280 relevant
-`CUTOUT`, `CUTOUT_MIPPED` and `TRIPWIRE` registrations extracted from the official 1.21.4 client.
-Those blocks conservatively pass because server shapes cannot represent texture alpha or every
-gap in the baked model. Fences and fence gates are added explicitly: their server shape is coarser
-than the visible post/rail model. `GRASS_BLOCK` and `CACTUS` are deliberately excluded despite
-their client render layer because their visible base geometry is opaque.
+## Reports and verification
 
-Set `raycast.transparent-block-mode` or `raycast.cutout-block-mode` to `occlude`, or add selected
-names/globs to `raycast.opaque-material-overrides`, to make those materials block. The catalog is
-stored in [`vanilla-1.21.4-cutout-materials.txt`](src/main/resources/vanilla-1.21.4-cutout-materials.txt).
-
-`OUTLINE` is exact vanilla **server VoxelShape geometry**, not the final rasterized client model.
-Texture alpha, resource-pack model overrides, shaders and client-only geometry are unavailable to
-an unmodified server. Pixel-perfect visibility through an individual ladder/leaf/door/fence
-opening still requires the client depth result and the same resource pack. The chosen server-only
-mode avoids a false solid wall by passing the complete cutout block conservatively; this can
-intentionally keep a player visible behind the opaque part of that same block.
-
-Foggy preserves the vanilla player-info/tab entry while an entity is destroyed. A different plugin
-that independently removes or rewrites that entry can prevent the client from accepting the later
-player spawn. `Player#canSee` is read as an interoperability signal, but Foggy never mutates it.
-
-On Folia, a ray is executed only when the viewer's current region owns every chunk in its corridor.
-If a configured visibility radius crosses an independently ticking region boundary, Foggy returns
-`REGION_UNOWNED` and keeps the target visible instead of reading foreign chunks or guessing that a
-wall exists. Nearby tracker pairs are normally region-co-located, but this conservative fallback is
-part of the safety contract and is visible in `/foggy debug status`.
-
-## Reports and tests
-
-- [`docs/stage-1-vanilla-analysis.md`](docs/stage-1-vanilla-analysis.md) — Mojang artifact hashes,
-  exact 1.21.4 signatures and render/raycast formulas.
-- [`docs/stage-2-packetevents.md`](docs/stage-2-packetevents.md) — PacketEvents API and complexity.
-- [`docs/folia.md`](docs/folia.md) — scheduler ownership, cross-region snapshots and limitations.
-- [`docs/testing.md`](docs/testing.md) — automated/load/manual verification.
+- [`docs/version-support.md`](docs/version-support.md) — server/JVM/protocol matrix and tested builds.
+- [`docs/stage-1-vanilla-analysis.md`](docs/stage-1-vanilla-analysis.md) — exact 1.21.4 renderer and ray formulas used as the modern reference.
+- [`docs/stage-2-packetevents.md`](docs/stage-2-packetevents.md) — packet APIs, version gates and complexity.
+- [`docs/folia.md`](docs/folia.md) — scheduler ownership and cross-region behavior.
+- [`docs/testing.md`](docs/testing.md) — automated, load and runtime verification.
 
 ## License
 

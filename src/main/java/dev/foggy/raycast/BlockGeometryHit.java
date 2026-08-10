@@ -1,44 +1,59 @@
 package dev.foggy.raycast;
 
-import org.bukkit.Material;
-import org.bukkit.util.BoundingBox;
-import org.bukkit.util.Vector;
+import dev.foggy.math.Aabb;
+import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
+import org.bukkit.Material;
+import org.bukkit.util.Vector;
 
-/**
- * Human-readable description of a Minecraft block-shape ray hit.
- *
- * @param position exact outline-shape intersection
- * @param material block material
- * @param blockData complete state string, including stair/slab/facing/connectivity properties
- * @param blockX block x
- * @param blockY block y
- * @param blockZ block z
- * @param outlineWidth width of the outline shape's enclosing bounds
- * @param outlineHeight height of the outline shape's enclosing bounds
- * @param outlineDepth depth of the outline shape's enclosing bounds
- * @param collisionSubBoxes number of individual boxes in the collision VoxelShape
- * @param outlineSubBoxes individual world-space boxes in the OUTLINE VoxelShape
- * @param exactOutlineBoxes whether OUTLINE boxes came directly from NMS
- * @param opticalMode transparency-policy decision
- */
-public record BlockGeometryHit(
-        Vector position,
-        Material material,
-        String blockData,
-        int blockX,
-        int blockY,
-        int blockZ,
-        double outlineWidth,
-        double outlineHeight,
-        double outlineDepth,
-        int collisionSubBoxes,
-        List<BoundingBox> outlineSubBoxes,
-        boolean exactOutlineBoxes,
-        BlockOpticalMode opticalMode
-) {
-    /** Creates an immutable debug hit. */
-    public BlockGeometryHit {
-        outlineSubBoxes = List.copyOf(outlineSubBoxes);
+/** Immutable human-readable description of a Minecraft block-shape hit. */
+public final class BlockGeometryHit {
+    private final Vector position;
+    private final Material material;
+    private final String blockData;
+    private final int blockX;
+    private final int blockY;
+    private final int blockZ;
+    private final double outlineWidth;
+    private final double outlineHeight;
+    private final double outlineDepth;
+    private final int collisionSubBoxes;
+    private final List<Aabb> outlineSubBoxes;
+    private final boolean exactOutlineBoxes;
+    private final BlockOpticalMode opticalMode;
+
+    public BlockGeometryHit(Vector position, Material material, String blockData,
+                            int blockX, int blockY, int blockZ,
+                            double outlineWidth, double outlineHeight, double outlineDepth,
+                            int collisionSubBoxes, List<Aabb> outlineSubBoxes,
+                            boolean exactOutlineBoxes, BlockOpticalMode opticalMode) {
+        this.position = position;
+        this.material = material;
+        this.blockData = blockData;
+        this.blockX = blockX;
+        this.blockY = blockY;
+        this.blockZ = blockZ;
+        this.outlineWidth = outlineWidth;
+        this.outlineHeight = outlineHeight;
+        this.outlineDepth = outlineDepth;
+        this.collisionSubBoxes = collisionSubBoxes;
+        this.outlineSubBoxes = Collections.unmodifiableList(new ArrayList<Aabb>(outlineSubBoxes));
+        this.exactOutlineBoxes = exactOutlineBoxes;
+        this.opticalMode = opticalMode;
     }
+
+    public Vector position() { return position; }
+    public Material material() { return material; }
+    public String blockData() { return blockData; }
+    public int blockX() { return blockX; }
+    public int blockY() { return blockY; }
+    public int blockZ() { return blockZ; }
+    public double outlineWidth() { return outlineWidth; }
+    public double outlineHeight() { return outlineHeight; }
+    public double outlineDepth() { return outlineDepth; }
+    public int collisionSubBoxes() { return collisionSubBoxes; }
+    public List<Aabb> outlineSubBoxes() { return outlineSubBoxes; }
+    public boolean exactOutlineBoxes() { return exactOutlineBoxes; }
+    public BlockOpticalMode opticalMode() { return opticalMode; }
 }

@@ -32,13 +32,14 @@ outgoing listener, while regular Paper packets still pass through it.
 Wrappers used to build transitions:
 
 - `WrapperPlayServerDestroyEntities(int...)`;
-- `WrapperPlayServerSpawnEntity(..., EntityTypes.PLAYER, ...)` (the player spawn form used by
-  1.20.2+);
+- `WrapperPlayServerSpawnPlayer` before 1.20.2;
+- `WrapperPlayServerSpawnEntity(..., EntityTypes.PLAYER, ...)` from 1.20.2 onward;
 - `WrapperPlayServerEntityMetadata`, populated by
   `SpigotConversionUtil.getEntityMetadata(Bukkit Entity)`;
 - `WrapperPlayServerEntityEquipment`, `WrapperPlayServerEntityEffect`,
   `WrapperPlayServerEntityHeadLook`, `WrapperPlayServerEntityVelocity`,
-  `WrapperPlayServerUpdateAttributes`, and `WrapperPlayServerSetPassengers`.
+  `WrapperPlayServerUpdateAttributes`, and `WrapperPlayServerSetPassengers`, with protocol gates
+  for offhand/passengers (1.9+) and scale (1.20.5+).
 
 The listener parses/cancels server spawn, relative move/rotation, teleport, metadata, equipment,
 effect add/remove, attributes, velocity, animation, status, damage/hurt, entity sound and collect
@@ -48,18 +49,18 @@ snapshot rather than being cancelled.
 ## Why tab-list packets are not resent
 
 Foggy destroys only the world entity. It does not remove `PlayerInfoUpdate`/tab state, so the
-client still owns the target's profile and skin when `SPAWN_ENTITY` is resent. Re-adding the tab
-entry would cause visible tab churn and is unnecessary on 1.21.4. If another plugin removes that
+client still owns the target's profile and skin when its version-appropriate player spawn is
+resent. Re-adding the tab entry would cause visible tab churn. If another plugin removes that
 entry, interoperability must be handled with that plugin.
 
 ## State and race handling
 
 Each viewer has concurrent sets of hidden, server-tracked and client-known entity ids. The engine
-touches them on the viewer's Paper/Folia entity thread; PacketEvents may read/update them on a Netty
-thread. A spawn that races after a hidden decision is cancelled. A later visible decision clears
-the hidden bit before silently sending the complete snapshot. A cross-region reappearance first
-captures metadata/equipment/effects on the target's `EntityScheduler`, then switches to the
-viewer's `EntityScheduler` for the packet flush.
+touches them on the viewer's platform-owned tick context; PacketEvents may read/update them on a
+Netty thread. A spawn that races after a hidden decision is cancelled. A later visible decision
+clears the hidden bit before silently sending the supported complete snapshot. A cross-region
+reappearance first captures metadata/equipment/effects on the target's entity scheduler, then
+switches to the viewer's entity scheduler for the packet flush.
 
 ## Complexity and performance
 

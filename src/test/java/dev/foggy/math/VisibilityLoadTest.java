@@ -56,6 +56,15 @@ class VisibilityLoadTest {
         assertTrue(visible >= 0);
     }
 
-    private record Point(double x, double y, double z) {
+    private static final class Point {
+        private final double x;
+        private final double y;
+        private final double z;
+
+        private Point(double x, double y, double z) {
+            this.x = x;
+            this.y = y;
+            this.z = z;
+        }
     }
 }

@@ -4,10 +4,12 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
 import dev.foggy.invisibility.TargetInvisibilityState;
+import dev.foggy.math.Aabb;
 import java.util.List;
 import java.util.Set;
+import java.util.Collections;
+import java.util.stream.Collectors;
 import java.util.UUID;
-import org.bukkit.util.BoundingBox;
 import org.bukkit.util.Vector;
 import org.junit.jupiter.api.Test;
 
@@ -27,8 +29,8 @@ class ConcurrentSnapshotIndexTest {
         index.publish(far);
         index.publish(anotherWorld);
 
-        assertEquals(List.of(near.playerId()), index.nearby(viewer, 32.0).stream()
-                .map(PlayerVisibilitySnapshot::playerId).toList());
+        assertEquals(Collections.singletonList(near.playerId()), index.nearby(viewer, 32.0).stream()
+                .map(PlayerVisibilitySnapshot::playerId).collect(Collectors.toList()));
     }
 
     @Test
@@ -44,8 +46,8 @@ class ConcurrentSnapshotIndexTest {
         index.publish(newPosition);
 
         assertEquals(0, index.nearby(oldViewer, 4.0).size());
-        assertEquals(List.of(newPosition.playerId()), index.nearby(newViewer, 4.0).stream()
-                .map(PlayerVisibilitySnapshot::playerId).toList());
+        assertEquals(Collections.singletonList(newPosition.playerId()), index.nearby(newViewer, 4.0).stream()
+                .map(PlayerVisibilitySnapshot::playerId).collect(Collectors.toList()));
     }
 
     @Test
@@ -56,10 +58,11 @@ class ConcurrentSnapshotIndexTest {
     private static PlayerVisibilitySnapshot snapshot(int id, UUID worldId,
                                                        double x, double y, double z, long capturedNanos) {
         Vector position = new Vector(x, y, z);
-        BoundingBox box = new BoundingBox(x - 0.3, y, z - 0.3, x + 0.3, y + 1.8, z + 0.3);
+        Aabb box = new Aabb(x - 0.3, y, z - 0.3, x + 0.3, y + 1.8, z + 0.3);
         return new PlayerVisibilitySnapshot(
                 null, new UUID(0L, id), id, "player-" + id, null, worldId,
-                position, position, box, List.of(position), false,
-                new TargetInvisibilityState(false, false, false, List.of()), Set.of(), capturedNanos);
+                position, position, box, Collections.singletonList(position), false,
+                new TargetInvisibilityState(false, false, false, Collections.<String>emptyList()),
+                Collections.<UUID>emptySet(), capturedNanos);
     }
 }

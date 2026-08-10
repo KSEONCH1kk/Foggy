@@ -3,6 +3,8 @@ package dev.foggy.raycast;
 import dev.foggy.config.FoggyConfig;
 import dev.foggy.config.TransparentBlockMode;
 import java.util.List;
+import java.util.ArrayList;
+import java.util.Collections;
 import java.util.Locale;
 import java.util.function.Predicate;
 import org.bukkit.Material;
@@ -71,10 +73,13 @@ public final class BlockTransparencyPolicy {
     }
 
     private static List<String> normalize(List<String> patterns) {
-        return patterns.stream()
-                .map(value -> value.toUpperCase(Locale.ROOT))
-                .map(value -> value.startsWith("MINECRAFT:") ? value.substring("MINECRAFT:".length()) : value)
-                .toList();
+        List<String> result = new ArrayList<String>(patterns.size());
+        for (String pattern : patterns) {
+            String value = pattern.toUpperCase(Locale.ROOT);
+            result.add(value.startsWith("MINECRAFT:")
+                    ? value.substring("MINECRAFT:".length()) : value);
+        }
+        return Collections.unmodifiableList(result);
     }
 
     private static boolean matchesAny(List<String> patterns, String materialName) {

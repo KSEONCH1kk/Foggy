@@ -5,6 +5,8 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Arrays;
+import java.util.Collections;
 import org.bukkit.util.Vector;
 import org.junit.jupiter.api.Test;
 
@@ -20,7 +22,7 @@ class CompensatedWorldTraversalTest {
                     return null;
                 }));
 
-        assertEquals(List.of(
+        assertEquals(Arrays.asList(
                 "0,0,0", "0,0,1", "0,1,1", "1,1,1",
                 "1,1,2", "1,2,2", "2,2,2"), cells);
     }
@@ -37,7 +39,7 @@ class CompensatedWorldTraversalTest {
 
         // Mojang's Double.MAX_VALUE * frac(1.0) starts at zero for the stationary Y
         // axis, producing one harmless duplicate visit before X advances.
-        assertEquals(List.of("-1,1,-1", "-1,1,-1", "-2,1,-1", "-3,1,-1"), cells);
+        assertEquals(Arrays.asList("-1,1,-1", "-1,1,-1", "-2,1,-1", "-3,1,-1"), cells);
     }
 
     @Test
@@ -49,6 +51,6 @@ class CompensatedWorldTraversalTest {
             cells.add("unexpected");
             return null;
         }));
-        assertEquals(List.of(), cells);
+        assertEquals(Collections.emptyList(), cells);
     }
 }

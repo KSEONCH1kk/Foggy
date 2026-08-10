@@ -1,4 +1,6 @@
-# Foggy targets Paper/Folia 1.21.4 and Java 21. PacketEvents 2.13.0 is required.
+# One Foggy JAR targets Spigot/Paper 1.8.x, 1.16-1.21 and Paper/Folia 26+.
+# Run the server on the Java version required by that server; Foggy itself is Java 8 bytecode.
+# PacketEvents 2.13.0 is required.
 visibility:
   radius-blocks: 128.0
   spatial-cell-size: 16
@@ -36,8 +38,8 @@ raycast:
     # Movement, view rotation and block events invalidate it immediately; 20 only bounds direct
     # NMS/plugin edits that bypass every block event.
     decision-ticks: 20
-  # Visibility uses Minecraft 1.21.4 ClipContext.Block.OUTLINE. This includes every
-  # state-dependent VoxelShape sub-box (stairs, slabs, fences, walls, signs, ladders, etc.).
+  # Visibility uses native, state-dependent geometry: the 1.8 collision AABB collector or
+  # 1.16+ VoxelShape boxes. This includes stairs, slabs, fences, walls, signs, ladders, etc.
   # "pass-through" still intersects these shapes, but listed translucent materials do not
   # terminate the ray. Use "occlude" if glass/leaves must behave like opaque blockers.
   transparent-block-mode: pass-through
@@ -47,18 +49,28 @@ raycast:
     - CAVE_AIR
     - VOID_AIR
     - WATER
+    - STATIONARY_WATER
     - LAVA
+    - STATIONARY_LAVA
     - BUBBLE_COLUMN
     - GLASS
     - "*_STAINED_GLASS"
+    - STAINED_GLASS
     - TINTED_GLASS
     - GLASS_PANE
+    - THIN_GLASS
     - "*_STAINED_GLASS_PANE"
+    - STAINED_GLASS_PANE
     - ICE
+    - PACKED_ICE
     - FROSTED_ICE
     - SLIME_BLOCK
     - HONEY_BLOCK
+    - LEAVES
+    - LEAVES_2
     - "*_LEAVES"
+    - PORTAL
+    - ENDER_PORTAL
     - NETHER_PORTAL
     - END_PORTAL
     - END_GATEWAY
@@ -66,11 +78,15 @@ raycast:
     - STRUCTURE_VOID
     - LIGHT
     - BEACON
-  # The built-in catalog contains all 280 relevant CUTOUT/CUTOUT_MIPPED/TRIPWIRE
-  # registrations from the official 1.21.4 client. Fences and gates are added because
-  # their solid render models contain geometric gaps coarser than the server OUTLINE shape.
+  # The built-in catalog starts with all 280 relevant CUTOUT/CUTOUT_MIPPED/TRIPWIRE
+  # registrations from the official 1.21.4 client and adds legacy/future material families.
+  # Fences and gates are included because their rendered gaps are finer than server shapes.
   cutout-block-mode: pass-through
   cutout-materials:
+    - FENCE
+    - NETHER_FENCE
+    - FENCE_GATE
+    - COBBLE_WALL
     - "*_FENCE"
     - "*_FENCE_GATE"
   # Evaluated before both lists. Example: [OAK_DOOR, TINTED_GLASS, "*_LEAVES"]

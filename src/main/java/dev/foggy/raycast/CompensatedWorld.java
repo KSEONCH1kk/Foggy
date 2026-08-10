@@ -1,7 +1,7 @@
 package dev.foggy.raycast;
 
 import dev.foggy.config.FoggyConfig;
-import io.papermc.paper.math.Position;
+import dev.foggy.platform.PlatformAdapter;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
@@ -12,11 +12,8 @@ import java.util.concurrent.atomic.AtomicReferenceArray;
 import java.util.concurrent.atomic.LongAdder;
 import java.util.logging.Level;
 import java.util.logging.Logger;
-import org.bukkit.Bukkit;
-import org.bukkit.FluidCollisionMode;
 import org.bukkit.World;
 import org.bukkit.block.Block;
-import org.bukkit.util.RayTraceResult;
 import org.bukkit.util.Vector;
 import org.jetbrains.annotations.Nullable;
 
@@ -32,13 +29,14 @@ public final class CompensatedWorld {
     private static final double TRAVERSE_EPSILON = -1.0E-7;
     private static final int SECTION_VOLUME = 16 * 16 * 16;
     private static final int PRUNE_INTERVAL_TICKS = 200;
-    private static final RayTraceResult UNLOADED_MISS = new RayTraceResult(new Vector());
-    private static final RayTraceResult OCCLUSION_HIT = new RayTraceResult(new Vector());
+    private static final BlockRayHit UNLOADED_MISS = new BlockRayHit(new Vector(), null, null);
+    private static final BlockRayHit OCCLUSION_HIT = new BlockRayHit(new Vector(), null, null);
 
     private final int validationTicks;
     private final int retentionTicks;
     private final BlockTransparencyPolicy transparencyPolicy;
     private final Logger logger;
+    private final PlatformAdapter platform;
     private final NmsShapeAccess shapeAccess = new NmsShapeAccess();
     private final ConcurrentMap<UUID, WorldCache> worlds = new ConcurrentHashMap<>();
     private final ConcurrentMap<Object, NmsShapeAccess.Geometry> stableGeometry = new ConcurrentHashMap<>();
@@ -55,11 +53,12 @@ public final class CompensatedWorld {
      * @param config validation, retention and transparency settings
      * @param logger plugin logger used for the one-time compatibility fallback warning
      */
-    public CompensatedWorld(FoggyConfig config, Logger logger) {
+    public CompensatedWorld(FoggyConfig config, Logger logger, PlatformAdapter platform) {
         validationTicks = config.worldCacheValidationTicks();
         retentionTicks = config.worldCacheRetentionTicks();
         transparencyPolicy = new BlockTransparencyPolicy(config);
         this.logger = logger;
+        this.platform = platform;
     }
 
     /**
@@ -89,7 +88,7 @@ public final class CompensatedWorld {
         int maxChunkX = Math.max(blockToChunk(fromX), blockToChunk(toX));
         int minChunkZ = Math.min(blockToChunk(fromZ), blockToChunk(toZ));
         int maxChunkZ = Math.max(blockToChunk(fromZ), blockToChunk(toZ));
-        return Bukkit.isOwnedByCurrentRegion(world, minChunkX, minChunkZ, maxChunkX, maxChunkZ);
+        return platform.owns(world, minChunkX, minChunkZ, maxChunkX, maxChunkZ);
     }
 
     /**
@@ -100,7 +99,7 @@ public final class CompensatedWorld {
      * @param to segment end
      * @return nearest detailed block hit, or null
      */
-    public @Nullable RayTraceResult traceOcclusion(World world, Vector from, Vector to) {
+    public @Nullable BlockRayHit traceOcclusion(World world, Vector from, Vector to) {
         return trace(world, from, to, ShapeKind.OUTLINE_OCCLUDING);
     }
 
@@ -120,12 +119,15 @@ public final class CompensatedWorld {
         if (bridgeUnavailable.get()) {
             return fallback(world, from, to, ShapeKind.OUTLINE_OCCLUDING) != null;
         }
-        int tick = Bukkit.getCurrentTick();
+        int tick = platform.currentTick();
         WorldCache cache = worlds.computeIfAbsent(world.getUID(), ignored -> new WorldCache());
         cache.prune(tick);
         TraceLookup lookup = new TraceLookup(world, cache, tick);
         try {
-            RayTraceResult result = traverse(from, to, (x, y, z) -> {
+            BlockRayHit result = traverse(from, to, (x, y, z) -> {
+                if (!lookup.validHeight(y)) {
+                    return null;
+                }
                 if (!lookup.loaded(x, z)) {
                     return UNLOADED_MISS;
                 }
@@ -152,7 +154,7 @@ public final class CompensatedWorld {
      * @param to segment end
      * @return nearest detailed outline hit, or null
      */
-    public @Nullable RayTraceResult traceAnyOutline(World world, Vector from, Vector to) {
+    public @Nullable BlockRayHit traceAnyOutline(World world, Vector from, Vector to) {
         return trace(world, from, to, ShapeKind.OUTLINE_ALL);
     }
 
@@ -164,7 +166,7 @@ public final class CompensatedWorld {
      * @param to segment end
      * @return nearest detailed collision hit, or null
      */
-    public @Nullable RayTraceResult traceCollision(World world, Vector from, Vector to) {
+    public @Nullable BlockRayHit traceCollision(World world, Vector from, Vector to) {
         return trace(world, from, to, ShapeKind.COLLISION);
     }
 
@@ -248,7 +250,7 @@ public final class CompensatedWorld {
         stableGeometry.clear();
     }
 
-    private @Nullable RayTraceResult trace(World world, Vector from, Vector to, ShapeKind kind) {
+    private @Nullable BlockRayHit trace(World world, Vector from, Vector to, ShapeKind kind) {
         traces.increment();
         if (from.equals(to)) {
             return null;
@@ -256,12 +258,15 @@ public final class CompensatedWorld {
         if (bridgeUnavailable.get()) {
             return fallback(world, from, to, kind);
         }
-        int tick = Bukkit.getCurrentTick();
+        int tick = platform.currentTick();
         WorldCache cache = worlds.computeIfAbsent(world.getUID(), ignored -> new WorldCache());
         cache.prune(tick);
         TraceLookup lookup = new TraceLookup(world, cache, tick);
         try {
-            RayTraceResult result = traverse(from, to, (x, y, z) -> {
+            BlockRayHit result = traverse(from, to, (x, y, z) -> {
+                if (!lookup.validHeight(y)) {
+                    return null;
+                }
                 if (!lookup.loaded(x, z)) {
                     // BlockGetter#getBlockStateIfLoaded returns a MISS and ends the vanilla
                     // traversal. Never load/generate a chunk merely because a visibility ray
@@ -279,7 +284,7 @@ public final class CompensatedWorld {
                 if (hit == null) {
                     return null;
                 }
-                return new RayTraceResult(hit.position(), world.getBlockAt(x, y, z), hit.face());
+                return new BlockRayHit(hit.position(), world.getBlockAt(x, y, z), hit.face());
             });
             return result == UNLOADED_MISS ? null : result;
         } catch (ReflectiveOperationException | RuntimeException exception) {
@@ -292,7 +297,7 @@ public final class CompensatedWorld {
         bridgeUnavailable.set(true);
         if (bridgeWarningLogged.compareAndSet(false, true)) {
             logger.log(Level.WARNING,
-                    "CompensatedWorld NMS shape bridge unavailable; falling back to Bukkit rayTraceBlocks", exception);
+                    "CompensatedWorld native shape bridge unavailable; using conservative local full-cube DDA", exception);
         }
     }
 
@@ -331,25 +336,31 @@ public final class CompensatedWorld {
         return new CachedCell(state, geometry, transparencyPolicy.mode(block.getType()), dynamic, tick);
     }
 
-    private @Nullable RayTraceResult fallback(World world, Vector from, Vector to, ShapeKind kind) {
+    private @Nullable BlockRayHit fallback(World world, Vector from, Vector to, ShapeKind kind) {
         fallbackTraces.increment();
-        Vector delta = to.clone().subtract(from);
-        double distance = delta.length();
-        if (distance <= 1.0E-12) {
-            return null;
+        try {
+            return traverse(from, to, (x, y, z) -> {
+                if (y < platform.minHeight(world) || y >= platform.maxHeight(world)) {
+                    return null;
+                }
+                Block block = world.getBlockAt(x, y, z);
+                String material = block.getType().name();
+                if (material.equals("AIR") || material.endsWith("_AIR")
+                        || (kind == ShapeKind.OUTLINE_OCCLUDING
+                        && !transparencyPolicy.mode(block.getType()).blocksRay())) {
+                    return null;
+                }
+                CompensatedShape.ShapeHit hit = CompensatedShape.FULL_BLOCK.clip(
+                        from.getX(), from.getY(), from.getZ(), to.getX(), to.getY(), to.getZ(), x, y, z);
+                return hit == null ? null : new BlockRayHit(hit.position(), block, hit.face());
+            });
+        } catch (ReflectiveOperationException impossible) {
+            throw new IllegalStateException(impossible);
         }
-        if (kind == ShapeKind.COLLISION) {
-            return world.rayTraceBlocks(from.toLocation(world), delta.multiply(1.0 / distance), distance,
-                    FluidCollisionMode.NEVER, true);
-        }
-        Position start = from.toLocation(world);
-        return world.rayTraceBlocks(start, delta.multiply(1.0 / distance), distance,
-                FluidCollisionMode.NEVER, false,
-                kind == ShapeKind.OUTLINE_ALL ? ignored -> true : transparencyPolicy.blockingPredicate());
     }
 
     /** Mirrors Mojang {@code BlockGetter#traverseBlocks} including its ±1e-7 boundary bias. */
-    static @Nullable RayTraceResult traverse(Vector from, Vector to, CellVisitor visitor)
+    static @Nullable BlockRayHit traverse(Vector from, Vector to, CellVisitor visitor)
             throws ReflectiveOperationException {
         if (from.equals(to)) {
             return null;
@@ -363,7 +374,7 @@ public final class CompensatedWorld {
         int blockX = floor(startX);
         int blockY = floor(startY);
         int blockZ = floor(startZ);
-        RayTraceResult initial = visitor.visit(blockX, blockY, blockZ);
+        BlockRayHit initial = visitor.visit(blockX, blockY, blockZ);
         if (initial != null) {
             return initial;
         }
@@ -396,7 +407,7 @@ public final class CompensatedWorld {
                 blockZ += stepZ;
                 progressZ += incrementZ;
             }
-            RayTraceResult hit = visitor.visit(blockX, blockY, blockZ);
+            BlockRayHit hit = visitor.visit(blockX, blockY, blockZ);
             if (hit != null) {
                 return hit;
             }
@@ -444,22 +455,43 @@ public final class CompensatedWorld {
         return (y & 15) << 8 | (z & 15) << 4 | (x & 15);
     }
 
-    /**
-     * Aggregate counters exposed by live debug.
-     *
-     * @param traces total detailed and boolean traces
-     * @param cellHits cached-cell reuses
-     * @param cellRefreshes cold or validation refreshes
-     * @param fallbackTraces Bukkit compatibility fallback invocations
-     * @param worlds cached worlds
-     * @param sections cached 16-cubed sections
-     * @param cells populated cells
-     * @param stableStates globally cached non-dynamic block states
-     * @param bridgeUnavailable whether the NMS bridge was disabled
-     */
-    public record CacheStats(long traces, long cellHits, long cellRefreshes, long fallbackTraces,
-                             long worlds, long sections, long cells, long stableStates,
-                             boolean bridgeUnavailable) {
+    /** Aggregate counters exposed by live debug. */
+    public static final class CacheStats {
+        private final long traces, cellHits, cellRefreshes, fallbackTraces;
+        private final long worlds, sections, cells, stableStates;
+        private final boolean bridgeUnavailable;
+
+        /**
+         * Creates a counter snapshot.
+         *
+         * @param traces total detailed and boolean traces
+         * @param cellHits cached-cell reuses
+         * @param cellRefreshes cold or validation refreshes
+         * @param fallbackTraces conservative local full-cube fallback invocations
+         * @param worlds cached worlds
+         * @param sections cached 16-cubed sections
+         * @param cells populated cells
+         * @param stableStates globally cached non-dynamic block states
+         * @param bridgeUnavailable whether the NMS bridge was disabled
+         */
+        CacheStats(long traces, long cellHits, long cellRefreshes, long fallbackTraces,
+                   long worlds, long sections, long cells, long stableStates,
+                   boolean bridgeUnavailable) {
+            this.traces = traces; this.cellHits = cellHits; this.cellRefreshes = cellRefreshes;
+            this.fallbackTraces = fallbackTraces; this.worlds = worlds; this.sections = sections;
+            this.cells = cells; this.stableStates = stableStates;
+            this.bridgeUnavailable = bridgeUnavailable;
+        }
+
+        public long traces() { return traces; }
+        public long cellHits() { return cellHits; }
+        public long cellRefreshes() { return cellRefreshes; }
+        public long fallbackTraces() { return fallbackTraces; }
+        public long worlds() { return worlds; }
+        public long sections() { return sections; }
+        public long cells() { return cells; }
+        public long stableStates() { return stableStates; }
+        public boolean bridgeUnavailable() { return bridgeUnavailable; }
     }
 
     private enum ShapeKind {
@@ -470,7 +502,7 @@ public final class CompensatedWorld {
 
     @FunctionalInterface
     interface CellVisitor {
-        @Nullable RayTraceResult visit(int x, int y, int z) throws ReflectiveOperationException;
+        @Nullable BlockRayHit visit(int x, int y, int z) throws ReflectiveOperationException;
     }
 
     private final class TraceLookup {
@@ -517,6 +549,10 @@ public final class CompensatedWorld {
                 lastChunkLoaded = world.isChunkLoaded(chunkX, chunkZ);
             }
             return lastChunkLoaded;
+        }
+
+        private boolean validHeight(int blockY) {
+            return blockY >= platform.minHeight(world) && blockY < platform.maxHeight(world);
         }
     }
 

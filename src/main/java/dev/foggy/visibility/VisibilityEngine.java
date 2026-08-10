@@ -6,10 +6,11 @@ import dev.foggy.config.FoggyConfig;
 import dev.foggy.invisibility.InvisibilityDisposition;
 import dev.foggy.invisibility.InvisibilityTracker;
 import dev.foggy.packet.PacketVisibilityController;
+import dev.foggy.platform.PlatformAdapter;
+import dev.foggy.platform.TaskHandle;
 import dev.foggy.raycast.OpticalResult;
 import dev.foggy.raycast.RaycastService;
 import dev.foggy.raycast.TargetPointSampler;
-import io.papermc.paper.threadedregions.scheduler.ScheduledTask;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Collection;
@@ -27,7 +28,7 @@ import org.bukkit.Bukkit;
 import org.bukkit.Location;
 import org.bukkit.entity.Player;
 import org.bukkit.plugin.Plugin;
-import org.bukkit.util.BoundingBox;
+import dev.foggy.math.Aabb;
 import org.bukkit.util.Vector;
 
 /**
@@ -49,6 +50,7 @@ public final class VisibilityEngine {
     private final PacketVisibilityController packetController;
     private final TargetPointSampler targetPointSampler;
     private final CompensatedEntities compensatedEntities;
+    private final PlatformAdapter platform;
     private final ConcurrentMap<UUID, ConcurrentMap<UUID, PairVisibilityState>> viewerStates =
             new ConcurrentHashMap<>();
     private final ConcurrentMap<UUID, TaskRegistration> tasks = new ConcurrentHashMap<>();
@@ -67,7 +69,8 @@ public final class VisibilityEngine {
      */
     public VisibilityEngine(Plugin plugin, FoggyConfig config, CameraEstimator cameraEstimator,
                             RaycastService raycastService, InvisibilityTracker invisibilityTracker,
-                            PacketVisibilityController packetController, TargetPointSampler targetPointSampler) {
+                            PacketVisibilityController packetController, TargetPointSampler targetPointSampler,
+                            PlatformAdapter platform) {
         this.plugin = plugin;
         this.config = config;
         this.cameraEstimator = cameraEstimator;
@@ -76,6 +79,7 @@ public final class VisibilityEngine {
         this.packetController = packetController;
         this.targetPointSampler = targetPointSampler;
         this.compensatedEntities = new CompensatedEntities(config.spatialCellSize());
+        this.platform = platform;
     }
 
     /**
@@ -109,12 +113,9 @@ public final class VisibilityEngine {
         if (tasks.putIfAbsent(playerId, registration) != null) {
             return;
         }
-        ScheduledTask scheduled = player.getScheduler().runAtFixedRate(
-                plugin,
-                ignored -> tickViewer(player),
-                () -> retire(playerId, registration),
-                1L,
-                1L);
+        TaskHandle scheduled = platform.runEntityTimer(player,
+                () -> tickViewer(player),
+                () -> retire(playerId, registration), 1L, 1L);
         if (scheduled == null) {
             tasks.remove(playerId, registration);
             return;
@@ -145,12 +146,11 @@ public final class VisibilityEngine {
      * @param player changed player
      */
     public void refresh(Player player) {
-        if (Bukkit.isOwnedByCurrentRegion(player)) {
+        if (platform.owns(player)) {
             tickViewer(player);
             return;
         }
-        player.getScheduler().run(plugin, ignored -> tickViewer(player),
-                () -> { });
+        platform.runEntity(player, () -> tickViewer(player), () -> { });
     }
 
     /**
@@ -228,7 +228,7 @@ public final class VisibilityEngine {
     }
 
     private void tickViewer(Player viewer) {
-        if (!viewer.isOnline() || !Bukkit.isOwnedByCurrentRegion(viewer)) {
+        if (!viewer.isOnline() || !platform.owns(viewer)) {
             return;
         }
         PlayerVisibilitySnapshot viewerSnapshot = capture(viewer);
@@ -247,11 +247,8 @@ public final class VisibilityEngine {
                 && previous.worldId().equals(worldId)
                 && previous.entityId() == player.getEntityId()
                 ? previous.position() : current;
-        BoundingBox box = player.getBoundingBox();
-        Set<UUID> trackedViewers = new HashSet<>();
-        for (Player tracked : player.getTrackedBy()) {
-            trackedViewers.add(tracked.getUniqueId());
-        }
+        Aabb box = platform.playerBounds(player, location);
+        Set<UUID> trackedViewers = platform.trackedViewers(player);
         return new PlayerVisibilitySnapshot(
                 player, playerId, player.getEntityId(), player.getName(), location.getWorld(), worldId,
                 current, previousPosition, box,
@@ -302,7 +299,7 @@ public final class VisibilityEngine {
             return HideReason.NONE;
         }
         boolean canSee = true;
-        if (Bukkit.isOwnedByCurrentRegion(target.playerHandle())) {
+        if (platform.owns(target.playerHandle())) {
             canSee = viewer.canSee(target.playerHandle());
         }
         InvisibilityDisposition invisibility = invisibilityTracker.disposition(target.invisibility(), canSee);
@@ -310,11 +307,13 @@ public final class VisibilityEngine {
             return HideReason.INVISIBLE;
         }
         OpticalResult optical = raycastService.evaluate(viewerSnapshot, target, cameras);
-        return switch (optical) {
-            case VISIBLE, REGION_UNOWNED -> HideReason.NONE;
-            case OCCLUDED -> HideReason.OCCLUDED;
-            case OUTSIDE_FOV -> HideReason.OUTSIDE_FOV;
-        };
+        if (optical == OpticalResult.OCCLUDED) {
+            return HideReason.OCCLUDED;
+        }
+        if (optical == OpticalResult.OUTSIDE_FOV) {
+            return HideReason.OUTSIDE_FOV;
+        }
+        return HideReason.NONE;
     }
 
     private void releaseUnmanaged(Player viewer, ConcurrentMap<UUID, PairVisibilityState> states,
@@ -345,10 +344,10 @@ public final class VisibilityEngine {
     }
 
     private static final class TaskRegistration {
-        private final AtomicReference<ScheduledTask> scheduled = new AtomicReference<>();
+        private final AtomicReference<TaskHandle> scheduled = new AtomicReference<>();
         private final AtomicBoolean cancelled = new AtomicBoolean();
 
-        private void bind(ScheduledTask task) {
+        private void bind(TaskHandle task) {
             if (!scheduled.compareAndSet(null, task)) {
                 task.cancel();
                 throw new IllegalStateException("Entity task registration was bound twice");
@@ -360,7 +359,7 @@ public final class VisibilityEngine {
 
         private void cancel() {
             cancelled.set(true);
-            ScheduledTask task = scheduled.get();
+            TaskHandle task = scheduled.get();
             if (task != null) {
                 task.cancel();
             }

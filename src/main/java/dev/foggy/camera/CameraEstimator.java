@@ -1,21 +1,21 @@
 package dev.foggy.camera;
 
 import dev.foggy.config.FoggyConfig;
+import dev.foggy.platform.PlatformAdapter;
 import dev.foggy.raycast.VanillaBlockRaycaster;
+import dev.foggy.raycast.BlockRayHit;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
 import org.bukkit.World;
-import org.bukkit.attribute.Attribute;
-import org.bukkit.attribute.AttributeInstance;
 import org.bukkit.entity.Player;
-import org.bukkit.util.RayTraceResult;
 import org.bukkit.util.Vector;
 
 /**
  * Estimates all camera poses that an unmodified server must conservatively consider.
  *
- * <p>This follows the constants and direction of Mojang 1.21.4
+ * <p>This follows the constants and direction of Mojang's modern
  * {@code Camera#setup(...)} / {@code Camera#getMaxZoom(float)}: third-person distance is
  * {@code 4 * entityScale} and is shortened by block clipping. The Bukkit approximation uses
  * collision-shape tracing; exact client perspective/FOV/offset can be supplied by the companion.</p>
@@ -26,6 +26,7 @@ public final class CameraEstimator {
     private final FoggyConfig config;
     private final CompanionCameraRegistry companion;
     private final VanillaBlockRaycaster blockRaycaster;
+    private final PlatformAdapter platform;
 
     /**
      * Creates an estimator with fallback and companion sources.
@@ -35,10 +36,11 @@ public final class CameraEstimator {
      * @param blockRaycaster Minecraft shape bridge used for camera clipping
      */
     public CameraEstimator(FoggyConfig config, CompanionCameraRegistry companion,
-                           VanillaBlockRaycaster blockRaycaster) {
+                           VanillaBlockRaycaster blockRaycaster, PlatformAdapter platform) {
         this.config = config;
         this.companion = companion;
         this.blockRaycaster = blockRaycaster;
+        this.platform = platform;
     }
 
     /**
@@ -69,8 +71,7 @@ public final class CameraEstimator {
         List<CameraPose> result = new ArrayList<>();
         result.addAll(expanded(viewer.getWorld(), "FALLBACK:FIRST", eye, basis,
                 fov, config.fallbackAspectRatio(), false));
-        AttributeInstance scaleAttribute = viewer.getAttribute(Attribute.SCALE);
-        double scale = scaleAttribute == null ? 1.0 : scaleAttribute.getValue();
+        double scale = platform.entityScale(viewer);
         double maxDistance = config.thirdPersonDistance() * Math.max(0.0625, Math.min(16.0, scale));
 
         if (config.includeBackCamera()) {
@@ -82,7 +83,7 @@ public final class CameraEstimator {
             addThirdPersonSamples(result, viewer.getWorld(), eye, frontBasis, basis.forward(),
                     maxDistance, fov, false, "FALLBACK:THIRD_FRONT");
         }
-        return List.copyOf(result);
+        return Collections.unmodifiableList(new ArrayList<CameraPose>(result));
     }
 
     private void addThirdPersonSamples(List<CameraPose> output, World world, Vector eye, Basis lookBasis,
@@ -108,11 +109,11 @@ public final class CameraEstimator {
         if (!blockRaycaster.ownsTrace(world, eye, requestedPosition)) {
             return requestedPosition;
         }
-        RayTraceResult hit = blockRaycaster.traceCollision(world, eye, requestedPosition);
+        BlockRayHit hit = blockRaycaster.traceCollision(world, eye, requestedPosition);
         double distance = requested;
-        if (hit != null && hit.getHitPosition() != null) {
+        if (hit != null) {
             distance = Math.max(0.0, Math.min(requested,
-                    hit.getHitPosition().distance(eye) - CAMERA_CLIP_PADDING));
+                    hit.position().distance(eye) - CAMERA_CLIP_PADDING));
         }
         return eye.clone().add(direction.multiply(distance));
     }
@@ -123,7 +124,7 @@ public final class CameraEstimator {
                 basis.up(), fov, aspect, exact);
         double margin = config.cameraSourceMargin();
         if (margin == 0.0 || exact) {
-            return List.of(center);
+            return Collections.singletonList(center);
         }
         List<CameraPose> poses = new ArrayList<>(5);
         poses.add(center);
@@ -155,6 +156,19 @@ public final class CameraEstimator {
         return new Basis(forward, right, up);
     }
 
-    private record Basis(Vector forward, Vector right, Vector up) {
+    private static final class Basis {
+        private final Vector forward;
+        private final Vector right;
+        private final Vector up;
+
+        private Basis(Vector forward, Vector right, Vector up) {
+            this.forward = forward;
+            this.right = right;
+            this.up = up;
+        }
+
+        private Vector forward() { return forward; }
+        private Vector right() { return right; }
+        private Vector up() { return up; }
     }
 }

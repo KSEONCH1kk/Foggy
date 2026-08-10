@@ -1,6 +1,8 @@
 package dev.foggy.visibility;
 
 import java.util.List;
+import java.util.ArrayList;
+import java.util.Collections;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
@@ -48,7 +50,7 @@ public final class CompensatedEntities {
      * @return current snapshots
      */
     public List<PlayerVisibilitySnapshot> snapshots() {
-        return List.copyOf(snapshots.values());
+        return Collections.unmodifiableList(new ArrayList<PlayerVisibilitySnapshot>(snapshots.values()));
     }
 
     /**

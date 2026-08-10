@@ -13,7 +13,8 @@
 - Mojang `VoxelShape#clip` entering-face, `1e-7`, inside-hit and endpoint semantics;
 - 20,000 deterministic rays proving the allocation-free boolean hot path equals detailed clip;
 - Mojang `BlockGetter#traverseBlocks` diagonal tie order, negative floor and zero-length behavior;
-- official 1.21.4 cutout catalog load/count and opaque-base exclusions;
+- official 1.21.4 cutout catalog load/count, cross-version material families and opaque-base
+  exclusions;
 - vertical-FOV tangent and aspect-ratio conversion;
 - hide-only debounce, immediate show and immediate hard vanish/spectator hide;
 - vanilla-invisibility disposition: preserve entity for equipment/hits, with hard-hide priority;
@@ -26,9 +27,9 @@ correct execution rather than a machine-specific wall-clock threshold.
 
 ## Manual two-client matrix
 
-Run the matrix once on clean Paper 1.21.4 and once on clean Folia 1.21.4, with PacketEvents 2.13.0
-and two clients. Record with 60+ FPS capture and enable PacketEvents debug/timestamps if packet
-arrival measurements are required.
+Run the matrix on at least one old-protocol server (1.8.8), one modern server (1.20.6 or 1.21.x)
+and current Folia, with PacketEvents 2.13.0 and two matching clients. Record with 60+ FPS capture
+and enable PacketEvents debug/timestamps if packet arrival measurements are required.
 
 1. Full wall: target walks behind a two-block-high wall. Confirm one destroy transition and no
    entity movement/metadata packets for that id while hidden.
@@ -41,8 +42,9 @@ arrival measurements are required.
    a solid wall. Default config must report the first shape as `PASS=... TRANSPARENT_PASS` or
    `CUTOUT_PASS` and the wall as `BLOCK`. Add a material to `opaque-material-overrides`, restart,
    and verify it becomes the blocker.
-5. Reappearance: break the blocking block or step out. Confirm `SPAWN_ENTITY` and snapshot packets
-   are emitted on the first owning-region pass after visibility changes. There is no show debounce.
+5. Reappearance: break the blocking block or step out. Confirm `SPAWN_PLAYER` before 1.20.2 or
+   `SPAWN_ENTITY` on newer protocols, followed by the supported snapshot packets on the first
+   owning-region pass. There is no show debounce.
 6. Potion invisibility: armor and both held items remain rendered, the invisible player remains
    attackable, and debug reports `mode=VANILLA_ENTITY`. Spectator/vanish must instead report
    `PACKET_HIDDEN` and keep directed visibility plus tab-list stability.
@@ -56,20 +58,21 @@ arrival measurements are required.
     survival transitions, then `/foggy reload`. Confirm no thread-ownership exception and that
     `REGION_UNOWNED` is visible/conservative rather than an occlusion decision.
 
-## Runtime smoke result
+## Runtime release result
 
-The built thin JAR is smoke-tested on Paper `1.21.4-232` and Folia `1.21.4-6`, with the official
-standalone PacketEvents `2.13.0` release JAR and Java 21. Both servers must complete load/enable,
-reach `Done`, accept `/foggy reload`, and shut down without Foggy, PacketEvents or region-thread
-exceptions. This verifies metadata, dependency order, remapping, scheduler linkage and basic
-runtime behavior; it is not a substitute for the two-client visual matrix above.
+The complete representative matrix is recorded in
+[`version-support.md`](version-support.md#verified-runtime-matrix). Every server must complete
+load/enable, accept `/foggy reload`, initialize its native shape bridge with `fallback=0`, and shut
+down without Foggy, PacketEvents or ownership exceptions.
 
-The Folia smoke additionally connected two protocol-769 clients. It initializes the compensated
-NMS shape bridge, places/removes a solid wall and observes directed destroy followed by the complete
-spawn snapshot without invoking the guarded Bukkit fallback. It also observed ordinary potion
-invisibility preserve the target entity/equipment/effect, spectator emit a directed destroy,
-survival emit the complete spawn snapshot, reload preserve an already hidden id, and death/respawn
-rebind the entity task. The final log contained no ownership, tick-thread or plugin exception.
+Two-client packet timing was measured on both ends of the packet gate. On Paper 1.8.8, spectator
+produced directed `DestroyEntities` after 81 ms and survival produced `SpawnPlayer` after 95 ms.
+On Paper 1.20.6, the corresponding samples were 46 ms and 96 ms with player `SpawnEntity`. These
+include tick and local client scheduling and demonstrate that no extra show debounce is applied.
+
+Repeated release runs of the 200-player sample performed 243,400 checks in 181–210 ms (about
+1.16–1.34 million checks/second) on the test host. This synthetic figure is a regression signal,
+not a TPS guarantee for arbitrary maps or hardware.
 
 ## Timing interpretation
 

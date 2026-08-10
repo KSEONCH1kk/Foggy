@@ -1,10 +1,13 @@
 package dev.foggy.invisibility;
 
 import dev.foggy.config.FoggyConfig;
+import dev.foggy.platform.PlatformAdapter;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.lang.reflect.Modifier;
 import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collections;
 import java.util.List;
 import java.util.logging.Level;
 import java.util.logging.Logger;
@@ -19,7 +22,7 @@ import org.bukkit.potion.PotionEffectType;
  * No vanilla hide/show method is invoked; {@code Player#canSee} is read only as an interoperability signal.
  */
 public final class InvisibilityTracker {
-    private static final List<String> VANISH_APIS = List.of(
+    private static final List<String> VANISH_APIS = Arrays.asList(
             "de.myzelyam.api.vanish.VanishAPI", // SuperVanish and PremiumVanish
             "org.kitteh.vanish.VanishAPI"
     );
@@ -27,6 +30,7 @@ public final class InvisibilityTracker {
     private final FoggyConfig config;
     private final Logger logger;
     private final List<Method> reflectiveHooks;
+    private final PlatformAdapter platform;
 
     /**
      * Discovers optional vanish APIs without making them hard dependencies.
@@ -34,10 +38,12 @@ public final class InvisibilityTracker {
      * @param config invisibility integration switches
      * @param logger plugin logger
      */
-    public InvisibilityTracker(FoggyConfig config, Logger logger) {
+    public InvisibilityTracker(FoggyConfig config, Logger logger, PlatformAdapter platform) {
         this.config = config;
         this.logger = logger;
-        this.reflectiveHooks = config.reflectiveVanishHooks() ? discoverHooks() : List.of();
+        this.platform = platform;
+        this.reflectiveHooks = config.reflectiveVanishHooks()
+                ? discoverHooks() : Collections.<Method>emptyList();
     }
 
     /**
@@ -49,7 +55,7 @@ public final class InvisibilityTracker {
     public TargetInvisibilityState captureTarget(Player target) {
         return new TargetInvisibilityState(
                 target.hasPotionEffect(PotionEffectType.INVISIBILITY),
-                target.isInvisible(),
+                platform.invisibleFlag(target),
                 target.getGameMode() == GameMode.SPECTATOR,
                 matchingHooks(target));
     }
@@ -96,7 +102,7 @@ public final class InvisibilityTracker {
                 logger.log(Level.FINE, "Vanish hook failed: " + hook, exception);
             }
         }
-        return List.copyOf(matches);
+        return Collections.unmodifiableList(new ArrayList<String>(matches));
     }
 
     private List<Method> discoverHooks() {
@@ -116,6 +122,6 @@ public final class InvisibilityTracker {
                 }
             }
         }
-        return List.copyOf(hooks);
+        return Collections.unmodifiableList(new ArrayList<Method>(hooks));
     }
 }

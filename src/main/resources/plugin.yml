@@ -1,7 +1,6 @@
 name: Foggy
 version: '${version}'
 main: dev.foggy.FoggyPlugin
-api-version: '1.21'
 authors: [Foggy]
 description: Per-viewer player visibility control implemented with PacketEvents.
 depend: [packetevents]

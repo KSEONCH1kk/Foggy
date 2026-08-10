@@ -3,17 +3,17 @@ package dev.foggy.raycast;
 import dev.foggy.camera.CameraPose;
 import dev.foggy.config.FoggyConfig;
 import dev.foggy.math.FrustumMath;
+import dev.foggy.platform.PlatformAdapter;
 import dev.foggy.visibility.PlayerVisibilitySnapshot;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.LongAdder;
-import org.bukkit.Bukkit;
 import org.bukkit.World;
-import org.bukkit.util.RayTraceResult;
 import org.bukkit.util.Vector;
 import org.jetbrains.annotations.Nullable;
 
@@ -31,6 +31,7 @@ public final class CompensatedRaycastService implements RaycastService {
     private static final int DECISION_PRUNE_INTERVAL_TICKS = 200;
     private final FoggyConfig config;
     private final VanillaBlockRaycaster blockRaycaster;
+    private final PlatformAdapter platform;
     private final ConcurrentMap<DecisionKey, CachedDecision> decisions = new ConcurrentHashMap<>();
     private final AtomicInteger lastDecisionPruneTick = new AtomicInteger();
     private final LongAdder decisionHits = new LongAdder();
@@ -42,9 +43,11 @@ public final class CompensatedRaycastService implements RaycastService {
      * @param config FOV, endpoint and cache settings
      * @param blockRaycaster compensated block geometry facade
      */
-    public CompensatedRaycastService(FoggyConfig config, VanillaBlockRaycaster blockRaycaster) {
+    public CompensatedRaycastService(FoggyConfig config, VanillaBlockRaycaster blockRaycaster,
+                                     PlatformAdapter platform) {
         this.config = config;
         this.blockRaycaster = blockRaycaster;
+        this.platform = platform;
     }
 
     @Override
@@ -55,7 +58,7 @@ public final class CompensatedRaycastService implements RaycastService {
             return OpticalResult.REGION_UNOWNED;
         }
 
-        int tick = Bukkit.getCurrentTick();
+        int tick = platform.currentTick();
         long revision = blockRaycaster.worldRevision(target.worldId());
         long signature = signature(targetPoints, cameras);
         DecisionKey key = new DecisionKey(viewer.playerId(), target.playerId());
@@ -87,8 +90,8 @@ public final class CompensatedRaycastService implements RaycastService {
         List<RayDebugLine> representative = new ArrayList<>(MAX_DEBUG_BLOCKED_RAYS);
         if (!ownsEnvelope(target.world(), targetPoints, cameras)) {
             return new RaycastDebugSnapshot(
-                    OpticalResult.REGION_UNOWNED, List.copyOf(cameras), targetPoints, 0, 0,
-                    0, List.of(), null, -1, System.nanoTime() - started);
+                    OpticalResult.REGION_UNOWNED, immutable(cameras), targetPoints, 0, 0,
+                    0, Collections.<RayDebugLine>emptyList(), null, -1, System.nanoTime() - started);
         }
 
         int inFov = 0;
@@ -105,12 +108,12 @@ public final class CompensatedRaycastService implements RaycastService {
                 }
                 inFov++;
                 traced++;
-                RayTraceResult hit = traceOwned(camera, point);
+                BlockRayHit hit = traceOwned(camera, point);
                 if (hit == null) {
                     RayDebugLine decisive = debugLine(camera, point, null, true);
                     return new RaycastDebugSnapshot(
-                            OpticalResult.VISIBLE, List.copyOf(cameras), targetPoints, inFov, traced,
-                            blocked, List.copyOf(representative), decisive, cameraIndex,
+                            OpticalResult.VISIBLE, immutable(cameras), targetPoints, inFov, traced,
+                            blocked, immutable(representative), decisive, cameraIndex,
                             System.nanoTime() - started);
                 }
                 blocked++;
@@ -121,8 +124,8 @@ public final class CompensatedRaycastService implements RaycastService {
         }
         OpticalResult result = inFov == 0 ? OpticalResult.OUTSIDE_FOV : OpticalResult.OCCLUDED;
         return new RaycastDebugSnapshot(
-                result, List.copyOf(cameras), targetPoints, inFov, traced, blocked,
-                List.copyOf(representative), null, -1, System.nanoTime() - started);
+                result, immutable(cameras), targetPoints, inFov, traced, blocked,
+                immutable(representative), null, -1, System.nanoTime() - started);
     }
 
     /**
@@ -199,7 +202,7 @@ public final class CompensatedRaycastService implements RaycastService {
                 camera.verticalFovDegrees(), camera.aspectRatio());
     }
 
-    private @Nullable RayTraceResult traceOwned(CameraPose camera, Vector target) {
+    private @Nullable BlockRayHit traceOwned(CameraPose camera, Vector target) {
         Vector endpoint = traceEndpoint(camera.position(), target);
         return endpoint == null ? null
                 : blockRaycaster.traceOcclusion(camera.world(), camera.position(), endpoint);
@@ -210,15 +213,14 @@ public final class CompensatedRaycastService implements RaycastService {
         return endpoint != null && blockRaycaster.occludes(camera.world(), camera.position(), endpoint);
     }
 
-    private RayDebugLine debugLine(CameraPose camera, Vector target, @Nullable RayTraceResult blocking,
+    private RayDebugLine debugLine(CameraPose camera, Vector target, @Nullable BlockRayHit blocking,
                                    boolean clear) {
         Vector endpoint = traceEndpoint(camera.position(), target);
-        RayTraceResult firstOutline = endpoint == null ? null
+        BlockRayHit firstOutline = endpoint == null ? null
                 : blockRaycaster.traceAnyOutline(camera.world(), camera.position(), endpoint);
         BlockGeometryHit blockingDescription = blocking == null ? null : blockRaycaster.describe(blocking);
         BlockGeometryHit firstDescription = firstOutline == null ? null : blockRaycaster.describe(firstOutline);
-        Vector hitPosition = blocking == null || blocking.getHitPosition() == null
-                ? null : blocking.getHitPosition().clone();
+        Vector hitPosition = blocking == null ? null : blocking.position().clone();
         return new RayDebugLine(
                 camera.position().clone(), target.clone(), hitPosition, clear,
                 blockingDescription, firstDescription);
@@ -273,21 +275,69 @@ public final class CompensatedRaycastService implements RaycastService {
         return hash * 0x100000001B3L;
     }
 
-    /**
-     * Aggregate counters exposed by live debug.
-     *
-     * @param world compensated-world counters
-     * @param decisionHits reused pair decisions
-     * @param decisionMisses recomputed pair decisions
-     * @param decisionEntries currently retained pair entries
-     */
-    public record CacheStats(CompensatedWorld.CacheStats world, long decisionHits,
-                             long decisionMisses, int decisionEntries) {
+    private static <T> List<T> immutable(List<T> values) {
+        return Collections.unmodifiableList(new ArrayList<T>(values));
     }
 
-    private record DecisionKey(UUID viewerId, UUID targetId) {
+    /** Aggregate counters exposed by live debug. */
+    public static final class CacheStats {
+        private final CompensatedWorld.CacheStats world;
+        private final long decisionHits;
+        private final long decisionMisses;
+        private final int decisionEntries;
+
+        /**
+         * Creates a ray/cache counter snapshot.
+         *
+         * @param world compensated-world counters
+         * @param decisionHits reused pair decisions
+         * @param decisionMisses recomputed pair decisions
+         * @param decisionEntries currently retained pair entries
+         */
+        CacheStats(CompensatedWorld.CacheStats world, long decisionHits,
+                   long decisionMisses, int decisionEntries) {
+            this.world = world; this.decisionHits = decisionHits;
+            this.decisionMisses = decisionMisses; this.decisionEntries = decisionEntries;
+        }
+
+        public CompensatedWorld.CacheStats world() { return world; }
+        public long decisionHits() { return decisionHits; }
+        public long decisionMisses() { return decisionMisses; }
+        public int decisionEntries() { return decisionEntries; }
     }
 
-    private record CachedDecision(long signature, long worldRevision, int tick, OpticalResult result) {
+    private static final class DecisionKey {
+        private final UUID viewerId;
+        private final UUID targetId;
+
+        private DecisionKey(UUID viewerId, UUID targetId) {
+            this.viewerId = viewerId; this.targetId = targetId;
+        }
+
+        @Override public boolean equals(Object other) {
+            if (this == other) return true;
+            if (!(other instanceof DecisionKey)) return false;
+            DecisionKey key = (DecisionKey) other;
+            return viewerId.equals(key.viewerId) && targetId.equals(key.targetId);
+        }
+
+        @Override public int hashCode() { return 31 * viewerId.hashCode() + targetId.hashCode(); }
+    }
+
+    private static final class CachedDecision {
+        private final long signature;
+        private final long worldRevision;
+        private final int tick;
+        private final OpticalResult result;
+
+        private CachedDecision(long signature, long worldRevision, int tick, OpticalResult result) {
+            this.signature = signature; this.worldRevision = worldRevision;
+            this.tick = tick; this.result = result;
+        }
+
+        private long signature() { return signature; }
+        private long worldRevision() { return worldRevision; }
+        private int tick() { return tick; }
+        private OpticalResult result() { return result; }
     }
 }

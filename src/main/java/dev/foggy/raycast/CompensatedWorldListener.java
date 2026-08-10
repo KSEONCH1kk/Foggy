@@ -9,7 +9,6 @@ import org.bukkit.event.block.BlockBreakEvent;
 import org.bukkit.event.block.BlockBurnEvent;
 import org.bukkit.event.block.BlockExplodeEvent;
 import org.bukkit.event.block.BlockFadeEvent;
-import org.bukkit.event.block.BlockFertilizeEvent;
 import org.bukkit.event.block.BlockFormEvent;
 import org.bukkit.event.block.BlockFromToEvent;
 import org.bukkit.event.block.BlockGrowEvent;
@@ -19,9 +18,11 @@ import org.bukkit.event.block.BlockPistonRetractEvent;
 import org.bukkit.event.block.BlockPlaceEvent;
 import org.bukkit.event.block.BlockRedstoneEvent;
 import org.bukkit.event.block.BlockSpreadEvent;
-import org.bukkit.event.block.FluidLevelChangeEvent;
 import org.bukkit.event.block.LeavesDecayEvent;
-import org.bukkit.event.block.SpongeAbsorbEvent;
+import org.bukkit.event.Event;
+import org.bukkit.plugin.EventExecutor;
+import org.bukkit.plugin.Plugin;
+import java.lang.reflect.Method;
 import org.bukkit.event.entity.EntityChangeBlockEvent;
 import org.bukkit.event.entity.EntityExplodeEvent;
 import org.bukkit.event.player.PlayerInteractEvent;
@@ -78,15 +79,6 @@ public final class CompensatedWorldListener implements Listener {
     public void onFlow(BlockFromToEvent event) {
         invalidate(event.getBlock());
         invalidate(event.getToBlock());
-    }
-
-    /**
-     * Invalidates a changed fluid level.
-     * @param event fluid-level state change
-     */
-    @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
-    public void onFluidLevel(FluidLevelChangeEvent event) {
-        invalidate(event.getBlock());
     }
 
     /**
@@ -220,32 +212,12 @@ public final class CompensatedWorldListener implements Listener {
     }
 
     /**
-     * Invalidates a fertilization batch.
-     * @param event fertilization block batch
-     */
-    @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
-    public void onFertilize(BlockFertilizeEvent event) {
-        invalidate(event.getBlock());
-        event.getBlocks().stream().map(BlockState::getBlock).forEach(this::invalidate);
-    }
-
-    /**
-     * Invalidates a sponge absorption batch.
-     * @param event sponge absorption block batch
-     */
-    @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
-    public void onSponge(SpongeAbsorbEvent event) {
-        invalidate(event.getBlock());
-        event.getBlocks().stream().map(BlockState::getBlock).forEach(this::invalidate);
-    }
-
-    /**
      * Invalidates a portal creation batch.
      * @param event portal block batch
      */
     @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
     public void onPortal(PortalCreateEvent event) {
-        event.getBlocks().stream().map(BlockState::getBlock).forEach(this::invalidate);
+        invalidateBlocks(event.getBlocks());
     }
 
     /**
@@ -275,5 +247,61 @@ public final class CompensatedWorldListener implements Listener {
 
     private void invalidate(Block block) {
         world.invalidateAround(block);
+    }
+
+    /** Registers block-mutation events introduced after Bukkit 1.8 without hard-linking them. */
+    public void registerOptionalEvents(Plugin plugin) {
+        registerOptional(plugin, "org.bukkit.event.block.FluidLevelChangeEvent");
+        registerOptional(plugin, "org.bukkit.event.block.BlockFertilizeEvent");
+        registerOptional(plugin, "org.bukkit.event.block.SpongeAbsorbEvent");
+    }
+
+    @SuppressWarnings("unchecked")
+    private void registerOptional(Plugin plugin, String className) {
+        try {
+            Class<?> raw = Class.forName(className, false, plugin.getClass().getClassLoader());
+            if (!Event.class.isAssignableFrom(raw)) {
+                return;
+            }
+            plugin.getServer().getPluginManager().registerEvent((Class<? extends Event>) raw, this,
+                    EventPriority.MONITOR, new EventExecutor() {
+                        @Override
+                        public void execute(Listener ignored, Event event) {
+                            invalidateOptionalEvent(event);
+                        }
+                    }, plugin, true);
+        } catch (ClassNotFoundException ignored) {
+            // This server predates the optional event; periodic identity validation is the guard.
+        }
+    }
+
+    private void invalidateOptionalEvent(Event event) {
+        Object block = invoke(event, "getBlock");
+        if (block instanceof Block) {
+            invalidate((Block) block);
+        }
+        Object blocks = invoke(event, "getBlocks");
+        if (blocks instanceof Iterable<?>) {
+            invalidateBlocks((Iterable<?>) blocks);
+        }
+    }
+
+    private void invalidateBlocks(Iterable<?> values) {
+        for (Object value : values) {
+            if (value instanceof Block) {
+                invalidate((Block) value);
+            } else if (value instanceof BlockState) {
+                invalidate(((BlockState) value).getBlock());
+            }
+        }
+    }
+
+    private static Object invoke(Object target, String name) {
+        try {
+            Method method = target.getClass().getMethod(name);
+            return method.invoke(target);
+        } catch (ReflectiveOperationException ignored) {
+            return null;
+        }
     }
 }

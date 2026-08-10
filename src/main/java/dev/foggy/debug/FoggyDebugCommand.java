@@ -1,5 +1,14 @@
 package dev.foggy.debug;
 
+import com.github.retrooper.packetevents.PacketEvents;
+import com.github.retrooper.packetevents.manager.server.ServerVersion;
+import com.github.retrooper.packetevents.protocol.particle.Particle;
+import com.github.retrooper.packetevents.protocol.particle.data.ParticleDustData;
+import com.github.retrooper.packetevents.protocol.particle.type.ParticleTypes;
+import com.github.retrooper.packetevents.util.Vector3d;
+import com.github.retrooper.packetevents.util.Vector3f;
+import com.github.retrooper.packetevents.wrapper.play.server.WrapperPlayServerActionBar;
+import com.github.retrooper.packetevents.wrapper.play.server.WrapperPlayServerParticle;
 import dev.foggy.FoggyPlugin;
 import dev.foggy.camera.CameraEstimator;
 import dev.foggy.camera.CameraPose;
@@ -7,6 +16,7 @@ import dev.foggy.invisibility.InvisibilityDebugSnapshot;
 import dev.foggy.invisibility.InvisibilityTracker;
 import dev.foggy.packet.PacketDebugState;
 import dev.foggy.packet.PacketVisibilityController;
+import dev.foggy.platform.PlatformAdapter;
 import dev.foggy.raycast.BlockGeometryHit;
 import dev.foggy.raycast.CompensatedRaycastService;
 import dev.foggy.raycast.OpticalResult;
@@ -15,23 +25,25 @@ import dev.foggy.raycast.RaycastDebugSnapshot;
 import dev.foggy.visibility.PairDebugState;
 import dev.foggy.visibility.PlayerVisibilitySnapshot;
 import dev.foggy.visibility.VisibilityEngine;
+import dev.foggy.math.Aabb;
 import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collections;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.stream.Collectors;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.format.NamedTextColor;
 import org.bukkit.Bukkit;
-import org.bukkit.Color;
-import org.bukkit.Particle;
+import org.bukkit.ChatColor;
 import org.bukkit.command.Command;
 import org.bukkit.command.CommandExecutor;
 import org.bukkit.command.CommandSender;
 import org.bukkit.command.TabCompleter;
 import org.bukkit.entity.Player;
-import org.bukkit.util.BoundingBox;
 import org.bukkit.util.Vector;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -42,15 +54,15 @@ import org.jetbrains.annotations.Nullable;
 public final class FoggyDebugCommand implements CommandExecutor, TabCompleter {
     private static final int UPDATE_INTERVAL_TICKS = 5;
     private static final int MAX_DEBUG_SHAPE_BOXES = 24;
-    private static final Particle.DustOptions CAMERA_FALLBACK = dust(55, 120, 255, 1.15f);
-    private static final Particle.DustOptions CAMERA_EXACT = dust(0, 255, 255, 1.3f);
-    private static final Particle.DustOptions TARGET_VISIBLE = dust(40, 255, 80, 1.1f);
-    private static final Particle.DustOptions TARGET_BLOCKED = dust(255, 50, 50, 1.1f);
-    private static final Particle.DustOptions TARGET_OUTSIDE = dust(140, 140, 140, 0.9f);
-    private static final Particle.DustOptions BLOCK_HIT = dust(255, 140, 0, 1.25f);
-    private static final Particle.DustOptions TRANSPARENT_HIT = dust(190, 70, 255, 1.15f);
-    private static final Particle.DustOptions SHAPE_EDGE = dust(255, 185, 40, 0.65f);
-    private static final Particle.DustOptions VIEW_DIRECTION = dust(255, 230, 40, 0.9f);
+    private static final Dust CAMERA_FALLBACK = dust(55, 120, 255, 1.15f);
+    private static final Dust CAMERA_EXACT = dust(0, 255, 255, 1.3f);
+    private static final Dust TARGET_VISIBLE = dust(40, 255, 80, 1.1f);
+    private static final Dust TARGET_BLOCKED = dust(255, 50, 50, 1.1f);
+    private static final Dust TARGET_OUTSIDE = dust(140, 140, 140, 0.9f);
+    private static final Dust BLOCK_HIT = dust(255, 140, 0, 1.25f);
+    private static final Dust TRANSPARENT_HIT = dust(190, 70, 255, 1.15f);
+    private static final Dust SHAPE_EDGE = dust(255, 185, 40, 0.65f);
+    private static final Dust VIEW_DIRECTION = dust(255, 230, 40, 0.9f);
 
     private final FoggyPlugin plugin;
     private final CameraEstimator cameraEstimator;
@@ -58,6 +70,7 @@ public final class FoggyDebugCommand implements CommandExecutor, TabCompleter {
     private final InvisibilityTracker invisibilityTracker;
     private final VisibilityEngine visibilityEngine;
     private final PacketVisibilityController packetController;
+    private final PlatformAdapter platform;
     private final Map<UUID, DebugSession> sessions = new ConcurrentHashMap<>();
     private final Map<UUID, Integer> viewerTicks = new ConcurrentHashMap<>();
 
@@ -74,13 +87,14 @@ public final class FoggyDebugCommand implements CommandExecutor, TabCompleter {
     public FoggyDebugCommand(FoggyPlugin plugin, CameraEstimator cameraEstimator,
                              CompensatedRaycastService raycastService,
                              InvisibilityTracker invisibilityTracker, VisibilityEngine visibilityEngine,
-                             PacketVisibilityController packetController) {
+                             PacketVisibilityController packetController, PlatformAdapter platform) {
         this.plugin = plugin;
         this.cameraEstimator = cameraEstimator;
         this.raycastService = raycastService;
         this.invisibilityTracker = invisibilityTracker;
         this.visibilityEngine = visibilityEngine;
         this.packetController = packetController;
+        this.platform = platform;
     }
 
     @Override
@@ -88,20 +102,20 @@ public final class FoggyDebugCommand implements CommandExecutor, TabCompleter {
                              @NotNull String label, @NotNull String @NotNull [] args) {
         if (args.length > 0 && args[0].equalsIgnoreCase("reload")) {
             if (!sender.hasPermission("foggy.reload")) {
-                sender.sendMessage(Component.text("Нет права foggy.reload.", NamedTextColor.RED));
+                send(sender, "Нет права foggy.reload.", NamedTextColor.RED);
                 return true;
             }
             plugin.reloadRuntime(result -> sendReloadResult(sender, result));
-            sender.sendMessage(Component.text("[Foggy] reload запланирован на global region.",
-                    NamedTextColor.YELLOW));
+            send(sender, "[Foggy] reload запланирован на global region.", NamedTextColor.YELLOW);
             return true;
         }
-        if (!(sender instanceof Player viewer)) {
+        if (!(sender instanceof Player)) {
             sender.sendMessage("Использование: /" + label + " reload (debug доступен только игроку)");
             return true;
         }
+        Player viewer = (Player) sender;
         if (!viewer.hasPermission("foggy.debug")) {
-            viewer.sendMessage(Component.text("Нет права foggy.debug.", NamedTextColor.RED));
+            send(viewer, "Нет права foggy.debug.", NamedTextColor.RED);
             return true;
         }
         if (args.length == 0 || !args[0].equalsIgnoreCase("debug")) {
@@ -111,8 +125,8 @@ public final class FoggyDebugCommand implements CommandExecutor, TabCompleter {
         if (args.length == 1 || args[1].equalsIgnoreCase("on")) {
             PlayerVisibilitySnapshot target = nearestTarget(viewer);
             if (target == null) {
-                viewer.sendMessage(Component.text("Рядом нет другого игрока; укажи /" + label
-                        + " debug <ник>.", NamedTextColor.RED));
+                send(viewer, "Рядом нет другого игрока; укажи /" + label
+                        + " debug <ник>.", NamedTextColor.RED);
                 return true;
             }
             start(viewer, target);
@@ -121,8 +135,8 @@ public final class FoggyDebugCommand implements CommandExecutor, TabCompleter {
         String action = args[1].toLowerCase(Locale.ROOT);
         if (action.equals("off")) {
             sessions.remove(viewer.getUniqueId());
-            viewer.sendActionBar(Component.empty());
-            viewer.sendMessage(Component.text("Foggy debug выключен.", NamedTextColor.YELLOW));
+            sendActionBar(viewer, Component.empty());
+            send(viewer, "Foggy debug выключен.", NamedTextColor.YELLOW);
             return true;
         }
         if (action.equals("status")) {
@@ -130,9 +144,11 @@ public final class FoggyDebugCommand implements CommandExecutor, TabCompleter {
             PlayerVisibilitySnapshot target = session == null
                     ? nearestTarget(viewer) : visibilityEngine.snapshot(session.targetId());
             if (target == null) {
-                viewer.sendMessage(Component.text("Debug target недоступен.", NamedTextColor.RED));
+                send(viewer, "Debug target недоступен.", NamedTextColor.RED);
             } else {
-                showDetailed(viewer, target, true);
+                // Status is the low-noise numeric probe used by production and matrix smoke
+                // tests. Particle rendering remains attached to an explicit debug session.
+                showDetailed(viewer, target, false);
             }
             return true;
         }
@@ -145,7 +161,7 @@ public final class FoggyDebugCommand implements CommandExecutor, TabCompleter {
                 .filter(candidate -> candidate.name().equalsIgnoreCase(targetName))
                 .findFirst().orElse(null);
         if (target == null || target.playerId().equals(viewer.getUniqueId())) {
-            viewer.sendMessage(Component.text("Игрок '" + targetName + "' не найден или это ты сам.", NamedTextColor.RED));
+            send(viewer, "Игрок '" + targetName + "' не найден или это ты сам.", NamedTextColor.RED);
             return true;
         }
         start(viewer, target);
@@ -172,11 +188,11 @@ public final class FoggyDebugCommand implements CommandExecutor, TabCompleter {
             return;
         }
         if (!viewer.getWorld().getUID().equals(target.worldId())) {
-            viewer.sendActionBar(Component.text("Foggy debug: target в другом мире", NamedTextColor.RED));
+            sendActionBar(viewer, Component.text("Foggy debug: target в другом мире", NamedTextColor.RED));
             return;
         }
         DebugFrame frame = capture(viewer, target);
-        viewer.sendActionBar(actionBar(frame));
+        sendActionBar(viewer, actionBar(frame));
         if (session.particles()) {
             renderParticles(viewer, frame.optical());
         }
@@ -213,47 +229,49 @@ public final class FoggyDebugCommand implements CommandExecutor, TabCompleter {
             return prefix(options, args[0]);
         }
         if (args.length == 2 && args[0].equalsIgnoreCase("debug")) {
-            List<String> options = new ArrayList<>(List.of("on", "off", "status", "particles", "target"));
+            List<String> options = new ArrayList<>(Arrays.asList(
+                    "on", "off", "status", "particles", "target"));
             visibilityEngine.snapshots().stream().map(PlayerVisibilitySnapshot::name).forEach(options::add);
             return prefix(options, args[1]);
         }
         if (args.length == 3 && args[0].equalsIgnoreCase("debug")) {
             if (args[1].equalsIgnoreCase("particles")) {
-                return prefix(List.of("on", "off"), args[2]);
+                return prefix(Arrays.asList("on", "off"), args[2]);
             }
             if (args[1].equalsIgnoreCase("target")) {
-                return prefix(visibilityEngine.snapshots().stream().map(PlayerVisibilitySnapshot::name).toList(), args[2]);
+                return prefix(visibilityEngine.snapshots().stream()
+                        .map(PlayerVisibilitySnapshot::name).collect(Collectors.toList()), args[2]);
             }
         }
-        return List.of();
+        return Collections.emptyList();
     }
 
     private void start(Player viewer, PlayerVisibilitySnapshot target) {
         sessions.put(viewer.getUniqueId(), new DebugSession(target.playerId(), true));
         viewerTicks.put(viewer.getUniqueId(), 0);
-        viewer.sendMessage(Component.text("Foggy debug → " + target.name(), NamedTextColor.AQUA));
-        viewer.sendMessage(Component.text(
+        send(viewer, "Foggy debug → " + target.name(), NamedTextColor.AQUA);
+        send(viewer,
                 "Частицы: синие/голубые=камеры, серые/красные/зелёные=hitbox, "
                         + "красные лучи=block hit, оранжевый=точка блока, фиолетовый=прозрачный проход, "
                         + "золотые рёбра=все OUTLINE sub-boxes, зелёный луч=причина видимости.",
-                NamedTextColor.GRAY));
+                NamedTextColor.GRAY);
         showDetailed(viewer, target, true);
     }
 
     private void toggleParticles(Player viewer, @Nullable String value) {
         DebugSession session = sessions.get(viewer.getUniqueId());
         if (session == null) {
-            viewer.sendMessage(Component.text("Сначала включи /foggy debug <ник>.", NamedTextColor.RED));
+            send(viewer, "Сначала включи /foggy debug <ник>.", NamedTextColor.RED);
             return;
         }
         boolean enabled = value == null ? !session.particles() : value.equalsIgnoreCase("on");
         sessions.put(viewer.getUniqueId(), session.withParticles(enabled));
-        viewer.sendMessage(Component.text("Debug particles: " + enabled, NamedTextColor.YELLOW));
+        send(viewer, "Debug particles: " + enabled, NamedTextColor.YELLOW);
     }
 
     private void showDetailed(Player viewer, PlayerVisibilitySnapshot target, boolean renderNow) {
         if (!viewer.getWorld().getUID().equals(target.worldId())) {
-            viewer.sendMessage(Component.text("Target в другом мире.", NamedTextColor.RED));
+            send(viewer, "Target в другом мире.", NamedTextColor.RED);
             return;
         }
         DebugFrame frame = capture(viewer, target);
@@ -319,7 +337,7 @@ public final class FoggyDebugCommand implements CommandExecutor, TabCompleter {
 
     private DebugFrame capture(Player viewer, PlayerVisibilitySnapshot target) {
         List<CameraPose> cameras = cameraEstimator.estimate(viewer);
-        boolean canSee = !Bukkit.isOwnedByCurrentRegion(target.playerHandle())
+        boolean canSee = !platform.owns(target.playerHandle())
                 || viewer.canSee(target.playerHandle());
         return new DebugFrame(
                 target,
@@ -356,11 +374,8 @@ public final class FoggyDebugCommand implements CommandExecutor, TabCompleter {
         for (CameraPose camera : snapshot.cameras()) {
             particle(viewer, camera.position(), camera.companionExact() ? CAMERA_EXACT : CAMERA_FALLBACK);
         }
-        Particle.DustOptions targetColor = switch (snapshot.result()) {
-            case VISIBLE, REGION_UNOWNED -> TARGET_OUTSIDE;
-            case OCCLUDED -> TARGET_BLOCKED;
-            case OUTSIDE_FOV -> TARGET_OUTSIDE;
-        };
+        Dust targetColor = snapshot.result() == OpticalResult.OCCLUDED
+                ? TARGET_BLOCKED : TARGET_OUTSIDE;
         for (Vector point : snapshot.targetPoints()) {
             particle(viewer, point, targetColor);
         }
@@ -387,7 +402,7 @@ public final class FoggyDebugCommand implements CommandExecutor, TabCompleter {
         RayDebugLine geometryRay = firstGeometryRay(snapshot);
         if (geometryRay != null && geometryRay.blockingBlock() != null) {
             int boxes = 0;
-            for (BoundingBox box : geometryRay.blockingBlock().outlineSubBoxes()) {
+            for (Aabb box : geometryRay.blockingBlock().outlineSubBoxes()) {
                 if (boxes++ >= MAX_DEBUG_SHAPE_BOXES) {
                     break;
                 }
@@ -438,9 +453,9 @@ public final class FoggyDebugCommand implements CommandExecutor, TabCompleter {
                 + " hit=" + vector(hit.position());
     }
 
-    private static void drawBox(Player viewer, BoundingBox box, Particle.DustOptions color) {
-        Vector min = new Vector(box.getMinX(), box.getMinY(), box.getMinZ());
-        Vector max = new Vector(box.getMaxX(), box.getMaxY(), box.getMaxZ());
+    private static void drawBox(Player viewer, Aabb box, Dust color) {
+        Vector min = new Vector(box.minX(), box.minY(), box.minZ());
+        Vector max = new Vector(box.maxX(), box.maxY(), box.maxZ());
         Vector[] corners = {
                 min,
                 new Vector(max.getX(), min.getY(), min.getZ()),
@@ -461,7 +476,7 @@ public final class FoggyDebugCommand implements CommandExecutor, TabCompleter {
         }
     }
 
-    private static void drawLine(Player viewer, Vector from, Vector to, Particle.DustOptions color, int maxPoints) {
+    private static void drawLine(Player viewer, Vector from, Vector to, Dust color, int maxPoints) {
         Vector delta = to.clone().subtract(from);
         double distance = delta.length();
         if (distance < 1.0E-6) {
@@ -477,26 +492,61 @@ public final class FoggyDebugCommand implements CommandExecutor, TabCompleter {
         }
     }
 
-    private static void particle(Player viewer, Vector position, Particle.DustOptions color) {
-        viewer.spawnParticle(Particle.DUST, position.toLocation(viewer.getWorld()), 1, 0.0, 0.0, 0.0, 0.0, color);
+    private static void particle(Player viewer, Vector position, Dust color) {
+        float red = color.red() == 0 ? Float.MIN_VALUE : color.red() / 255.0f;
+        float green = color.green() / 255.0f;
+        float blue = color.blue() / 255.0f;
+        boolean legacy = PacketEvents.getAPI().getServerManager().getVersion()
+                .isOlderThan(ServerVersion.V_1_13);
+        Particle<?> dust = legacy
+                ? new Particle<ParticleDustData>(ParticleTypes.DUST)
+                : new Particle<ParticleDustData>(ParticleTypes.DUST,
+                        new ParticleDustData(color.size(), red, green, blue));
+        Vector3f offset = legacy ? new Vector3f(red, green, blue) : Vector3f.zero();
+        WrapperPlayServerParticle packet = new WrapperPlayServerParticle(
+                dust, false,
+                new Vector3d(position.getX(), position.getY(), position.getZ()),
+                offset, legacy ? color.size() : 0.0f, legacy ? 0 : 1);
+        PacketEvents.getAPI().getPlayerManager().sendPacketSilently(viewer, packet);
     }
 
-    private static Particle.DustOptions dust(int red, int green, int blue, float size) {
-        return new Particle.DustOptions(Color.fromRGB(red, green, blue), size);
+    private static Dust dust(int red, int green, int blue, float size) {
+        return new Dust(red, green, blue, size);
     }
 
     private void sendReloadResult(CommandSender sender, FoggyPlugin.ReloadResult result) {
-        Component message = Component.text("[Foggy] " + result.message(),
-                result.success() ? NamedTextColor.GREEN : NamedTextColor.RED);
-        if (sender instanceof Player player) {
-            player.getScheduler().run(plugin, ignored -> player.sendMessage(message), null);
+        String message = "[Foggy] " + result.message();
+        NamedTextColor color = result.success() ? NamedTextColor.GREEN : NamedTextColor.RED;
+        if (sender instanceof Player) {
+            Player player = (Player) sender;
+            platform.runEntity(player, () -> send(player, message, color), () -> { });
         } else {
-            sender.sendMessage(message);
+            send(sender, message, color);
         }
     }
 
     private static void line(Player player, String message, NamedTextColor color) {
-        player.sendMessage(Component.text("[Foggy] " + message, color));
+        send(player, "[Foggy] " + message, color);
+    }
+
+    private static void send(CommandSender sender, String message, NamedTextColor color) {
+        sender.sendMessage(legacyColor(color) + message);
+    }
+
+    private static void sendActionBar(Player player, Component component) {
+        PacketEvents.getAPI().getPlayerManager().sendPacketSilently(
+                player, new WrapperPlayServerActionBar(component));
+    }
+
+    private static ChatColor legacyColor(NamedTextColor color) {
+        if (color == NamedTextColor.RED) return ChatColor.RED;
+        if (color == NamedTextColor.YELLOW) return ChatColor.YELLOW;
+        if (color == NamedTextColor.GREEN || color == NamedTextColor.DARK_GREEN) return ChatColor.GREEN;
+        if (color == NamedTextColor.AQUA) return ChatColor.AQUA;
+        if (color == NamedTextColor.GOLD) return ChatColor.GOLD;
+        if (color == NamedTextColor.LIGHT_PURPLE) return ChatColor.LIGHT_PURPLE;
+        if (color == NamedTextColor.DARK_GRAY) return ChatColor.DARK_GRAY;
+        return ChatColor.GRAY;
     }
 
     private static void help(Player player, String label) {
@@ -523,7 +573,8 @@ public final class FoggyDebugCommand implements CommandExecutor, TabCompleter {
 
     private static List<String> prefix(List<String> values, String prefix) {
         String lower = prefix.toLowerCase(Locale.ROOT);
-        return values.stream().filter(value -> value.toLowerCase(Locale.ROOT).startsWith(lower)).toList();
+        return values.stream().filter(value -> value.toLowerCase(Locale.ROOT).startsWith(lower))
+                .collect(Collectors.toList());
     }
 
     private static String decimal(double value) {
@@ -534,13 +585,49 @@ public final class FoggyDebugCommand implements CommandExecutor, TabCompleter {
         return "(" + decimal(value.getX()) + "," + decimal(value.getY()) + "," + decimal(value.getZ()) + ")";
     }
 
-    private record DebugFrame(
-            PlayerVisibilitySnapshot target,
-            boolean bypass,
-            InvisibilityDebugSnapshot invisibility,
-            RaycastDebugSnapshot optical,
-            PairDebugState engine,
-            PacketDebugState packet
-    ) {
+    private static final class Dust {
+        private final int red;
+        private final int green;
+        private final int blue;
+        private final float size;
+
+        private Dust(int red, int green, int blue, float size) {
+            this.red = red;
+            this.green = green;
+            this.blue = blue;
+            this.size = size;
+        }
+
+        private int red() { return red; }
+        private int green() { return green; }
+        private int blue() { return blue; }
+        private float size() { return size; }
+    }
+
+    private static final class DebugFrame {
+        private final PlayerVisibilitySnapshot target;
+        private final boolean bypass;
+        private final InvisibilityDebugSnapshot invisibility;
+        private final RaycastDebugSnapshot optical;
+        private final PairDebugState engine;
+        private final PacketDebugState packet;
+
+        private DebugFrame(PlayerVisibilitySnapshot target, boolean bypass,
+                           InvisibilityDebugSnapshot invisibility, RaycastDebugSnapshot optical,
+                           PairDebugState engine, PacketDebugState packet) {
+            this.target = target;
+            this.bypass = bypass;
+            this.invisibility = invisibility;
+            this.optical = optical;
+            this.engine = engine;
+            this.packet = packet;
+        }
+
+        private PlayerVisibilitySnapshot target() { return target; }
+        private boolean bypass() { return bypass; }
+        private InvisibilityDebugSnapshot invisibility() { return invisibility; }
+        private RaycastDebugSnapshot optical() { return optical; }
+        private PairDebugState engine() { return engine; }
+        private PacketDebugState packet() { return packet; }
     }
 }

@@ -1,34 +1,37 @@
 package dev.foggy.math;
 
-/**
- * Immutable axis-aligned box used by deterministic synthetic raycast tests.
- *
- * @param minX minimum x
- * @param minY minimum y
- * @param minZ minimum z
- * @param maxX maximum x
- * @param maxY maximum y
- * @param maxZ maximum z
- */
-public record Aabb(double minX, double minY, double minZ, double maxX, double maxY, double maxZ) {
-    /** Creates a validated box. */
-    public Aabb {
+/** Immutable version-neutral axis-aligned box. */
+public final class Aabb {
+    private final double minX;
+    private final double minY;
+    private final double minZ;
+    private final double maxX;
+    private final double maxY;
+    private final double maxZ;
+
+    public Aabb(double minX, double minY, double minZ,
+                double maxX, double maxY, double maxZ) {
         if (minX > maxX || minY > maxY || minZ > maxZ) {
             throw new IllegalArgumentException("Inverted AABB");
         }
+        this.minX = minX;
+        this.minY = minY;
+        this.minZ = minZ;
+        this.maxX = maxX;
+        this.maxY = maxY;
+        this.maxZ = maxZ;
     }
 
-    /**
-     * Returns true when the closed segment intersects this box before its endpoint.
-     *
-     * @param fromX source x
-     * @param fromY source y
-     * @param fromZ source z
-     * @param toX destination x
-     * @param toY destination y
-     * @param toZ destination z
-     * @return whether this shape blocks the segment
-     */
+    public double minX() { return minX; }
+    public double minY() { return minY; }
+    public double minZ() { return minZ; }
+    public double maxX() { return maxX; }
+    public double maxY() { return maxY; }
+    public double maxZ() { return maxZ; }
+    public double widthX() { return maxX - minX; }
+    public double height() { return maxY - minY; }
+    public double widthZ() { return maxZ - minZ; }
+
     public boolean intersectsSegment(double fromX, double fromY, double fromZ,
                                      double toX, double toY, double toZ) {
         double[] interval = {0.0, 1.0};
@@ -38,10 +41,9 @@ public record Aabb(double minX, double minY, double minZ, double maxX, double ma
                 && interval[0] < 1.0 - 1.0E-9;
     }
 
-    private static boolean clipAxis(double origin, double direction, double min, double max, double[] interval) {
-        if (Math.abs(direction) < 1.0E-12) {
-            return origin >= min && origin <= max;
-        }
+    private static boolean clipAxis(double origin, double direction, double min, double max,
+                                    double[] interval) {
+        if (Math.abs(direction) < 1.0E-12) return origin >= min && origin <= max;
         double t1 = (min - origin) / direction;
         double t2 = (max - origin) / direction;
         if (t1 > t2) {

@@ -1,23 +1,26 @@
+import java.io.DataInputStream
+
 plugins {
     java
 }
 
 group = "dev.foggy"
-version = "1.2.0"
+version = "2.0.0"
 
 repositories {
     mavenCentral()
     maven("https://repo.papermc.io/repository/maven-public/")
     maven("https://repo.codemc.io/repository/maven-releases/")
+    maven("https://hub.spigotmc.org/nexus/content/repositories/snapshots/")
 }
 
 dependencies {
-    compileOnly("io.papermc.paper:paper-api:1.21.4-R0.1-SNAPSHOT")
+    compileOnly("org.spigotmc:spigot-api:1.8.8-R0.1-SNAPSHOT")
     compileOnly("com.github.retrooper:packetevents-spigot:2.13.0")
 
     testImplementation(platform("org.junit:junit-bom:5.11.4"))
     testImplementation("org.junit.jupiter:junit-jupiter")
-    testImplementation("io.papermc.paper:paper-api:1.21.4-R0.1-SNAPSHOT")
+    testImplementation("org.spigotmc:spigot-api:1.8.8-R0.1-SNAPSHOT")
     testRuntimeOnly("org.junit.platform:junit-platform-launcher")
 }
 
@@ -28,8 +31,10 @@ java {
 
 tasks.withType<JavaCompile>().configureEach {
     options.encoding = "UTF-8"
-    options.release = 21
-    options.compilerArgs.addAll(listOf("-Xlint:all", "-Xlint:-processing", "-Xlint:-deprecation"))
+    options.release = 8
+    options.compilerArgs.addAll(listOf(
+        "-Xlint:all", "-Xlint:-processing", "-Xlint:-deprecation", "-Xlint:-options"
+    ))
 }
 
 tasks.processResources {
@@ -55,6 +60,32 @@ tasks.register<Test>("loadTest") {
         includeTags("load")
     }
     testLogging.showStandardStreams = true
+}
+
+val verifyJava8Bytecode by tasks.registering {
+    description = "Rejects class files that cannot be loaded by a Java 8 Minecraft server."
+    group = "verification"
+    dependsOn(tasks.classes)
+    doLast {
+        fileTree(layout.buildDirectory.dir("classes/java/main")) {
+            include("**/*.class")
+        }.forEach { classFile ->
+            DataInputStream(classFile.inputStream().buffered()).use { input ->
+                check(input.readInt() == 0xCAFEBABE.toInt()) {
+                    "Invalid class file: $classFile"
+                }
+                input.readUnsignedShort() // minor version
+                val major = input.readUnsignedShort()
+                check(major <= 52) {
+                    "$classFile has class-file version $major; Foggy requires Java 8 bytecode (52)"
+                }
+            }
+        }
+    }
+}
+
+tasks.named("check") {
+    dependsOn(verifyJava8Bytecode)
 }
 
 tasks.jar {

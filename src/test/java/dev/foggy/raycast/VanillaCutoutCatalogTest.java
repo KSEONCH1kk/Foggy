@@ -15,6 +15,23 @@ class VanillaCutoutCatalogTest {
         assertTrue(VanillaCutoutCatalog.contains("IRON_BARS"));
         assertTrue(VanillaCutoutCatalog.contains("SPAWNER"));
         assertTrue(VanillaCutoutCatalog.contains("COPPER_GRATE"));
+        assertTrue(VanillaCutoutCatalog.contains("OAK_FENCE"));
+        assertTrue(VanillaCutoutCatalog.contains("PALE_OAK_FENCE_GATE"));
+    }
+
+    @Test
+    void coversPreFlatteningCutoutNames() {
+        assertTrue(VanillaCutoutCatalog.contains("FENCE"));
+        assertTrue(VanillaCutoutCatalog.contains("NETHER_FENCE"));
+        assertTrue(VanillaCutoutCatalog.contains("FENCE_GATE"));
+        assertTrue(VanillaCutoutCatalog.contains("COBBLE_WALL"));
+        assertTrue(VanillaCutoutCatalog.contains("WOODEN_DOOR"));
+        assertTrue(VanillaCutoutCatalog.contains("IRON_DOOR_BLOCK"));
+        assertTrue(VanillaCutoutCatalog.contains("TRAP_DOOR"));
+        assertTrue(VanillaCutoutCatalog.contains("SIGN_POST"));
+        assertTrue(VanillaCutoutCatalog.contains("SKULL"));
+        assertTrue(VanillaCutoutCatalog.contains("IRON_FENCE"));
+        assertTrue(VanillaCutoutCatalog.contains("WEB"));
     }
 
     @Test
@@ -23,6 +40,6 @@ class VanillaCutoutCatalogTest {
         assertFalse(VanillaCutoutCatalog.contains("GRASS_BLOCK"));
         assertFalse(VanillaCutoutCatalog.contains("CACTUS"));
         assertFalse(VanillaCutoutCatalog.contains("PISTON_HEAD"));
-        assertFalse(VanillaCutoutCatalog.contains("OAK_FENCE"));
+        assertFalse(VanillaCutoutCatalog.contains("PISTON_BASE"));
     }
 }

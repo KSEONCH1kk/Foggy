@@ -4,13 +4,12 @@ import dev.foggy.config.FoggyConfig;
 import java.util.UUID;
 import org.bukkit.World;
 import org.bukkit.block.Block;
-import org.bukkit.util.BoundingBox;
-import org.bukkit.util.RayTraceResult;
+import dev.foggy.math.Aabb;
 import org.bukkit.util.Vector;
 import org.jetbrains.annotations.Nullable;
 
 /**
- * Facade over the cached, allocation-light Minecraft 1.21.4 voxel traversal.
+ * Facade over the cached, allocation-light Minecraft-style voxel traversal.
  *
  * <p>{@link CompensatedWorld} mirrors Mojang {@code BlockGetter#traverseBlocks} and
  * {@code VoxelShape#clip}, but resolves a block state's OUTLINE/COLLIDER sub-boxes only on a cold
@@ -43,7 +42,7 @@ public final class VanillaBlockRaycaster {
      * @param to segment end
      * @return first blocking hit, or null
      */
-    public @Nullable RayTraceResult traceOcclusion(World world, Vector from, Vector to) {
+    public @Nullable BlockRayHit traceOcclusion(World world, Vector from, Vector to) {
         return compensatedWorld.traceOcclusion(world, from, to);
     }
 
@@ -68,7 +67,7 @@ public final class VanillaBlockRaycaster {
      * @param to segment end
      * @return first outline hit, or null
      */
-    public @Nullable RayTraceResult traceAnyOutline(World world, Vector from, Vector to) {
+    public @Nullable BlockRayHit traceAnyOutline(World world, Vector from, Vector to) {
         return compensatedWorld.traceAnyOutline(world, from, to);
     }
 
@@ -80,7 +79,7 @@ public final class VanillaBlockRaycaster {
      * @param to segment end
      * @return first collision hit, or null
      */
-    public @Nullable RayTraceResult traceCollision(World world, Vector from, Vector to) {
+    public @Nullable BlockRayHit traceCollision(World world, Vector from, Vector to) {
         return compensatedWorld.traceCollision(world, from, to);
     }
 
@@ -113,23 +112,23 @@ public final class VanillaBlockRaycaster {
     /**
      * Builds an allocation-heavy description for operator diagnostics.
      *
-     * @param result Bukkit ray result
+     * @param result local compensated-world ray result
      * @return described block hit, or null for a non-block result
      */
-    public @Nullable BlockGeometryHit describe(RayTraceResult result) {
-        Block block = result.getHitBlock();
-        if (block == null || result.getHitPosition() == null) {
+    public @Nullable BlockGeometryHit describe(BlockRayHit result) {
+        Block block = result.block();
+        if (block == null) {
             return null;
         }
-        BoundingBox outline = block.getBoundingBox();
         OutlineShapeSnapshot outlineShape = outlineShapeInspector.inspect(block);
+        Aabb outline = outlineShape.envelope(block.getX(), block.getY(), block.getZ());
         return new BlockGeometryHit(
-                result.getHitPosition().clone(),
+                result.position().clone(),
                 block.getType(),
-                block.getBlockData().getAsString(),
+                outlineShape.stateDescription(),
                 block.getX(), block.getY(), block.getZ(),
-                outline.getWidthX(), outline.getHeight(), outline.getWidthZ(),
-                block.getCollisionShape().getBoundingBoxes().size(),
+                outline.widthX(), outline.height(), outline.widthZ(),
+                outlineShape.collisionBoxes(),
                 outlineShape.boxes(), outlineShape.exact(),
                 transparencyPolicy.mode(block.getType()));
     }
