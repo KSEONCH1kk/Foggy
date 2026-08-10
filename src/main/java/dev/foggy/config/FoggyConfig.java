@@ -20,6 +20,9 @@ import org.bukkit.configuration.file.FileConfiguration;
  * @param includeBackCamera include the rear F5 camera in fallback poses
  * @param interpolationSamples number of target positions sampled over the previous tick
  * @param endpointEpsilon ray length removed at the target endpoint
+ * @param worldCacheValidationTicks maximum block-state cache age when no invalidation event fired
+ * @param worldCacheRetentionTicks unused compensated-world sections are evicted after this age
+ * @param decisionCacheTicks maximum reuse age for an unchanged entity-pair optical decision
  * @param transparentBlockMode whether configured transparent materials pass or terminate rays
  * @param transparentMaterials material-name globs treated as optically transparent
  * @param cutoutBlockMode whether vanilla/configured cutout materials pass or terminate rays
@@ -53,6 +56,9 @@ public record FoggyConfig(
         boolean includeBackCamera,
         int interpolationSamples,
         double endpointEpsilon,
+        int worldCacheValidationTicks,
+        int worldCacheRetentionTicks,
+        int decisionCacheTicks,
         TransparentBlockMode transparentBlockMode,
         List<String> transparentMaterials,
         TransparentBlockMode cutoutBlockMode,
@@ -104,6 +110,12 @@ public record FoggyConfig(
         double sourceMargin = bounded(config.getDouble("camera.source-margin-blocks", 0.1), 0.0, 1.0, "camera.source-margin-blocks");
         int interpolation = bounded(config.getInt("raycast.interpolation-samples", 3), 1, 8, "raycast.interpolation-samples");
         double epsilon = bounded(config.getDouble("raycast.endpoint-epsilon", 0.0001), 0.0, 0.1, "raycast.endpoint-epsilon");
+        int validationTicks = bounded(config.getInt("raycast.cache.validation-ticks", 20),
+                1, 200, "raycast.cache.validation-ticks");
+        int retentionTicks = bounded(config.getInt("raycast.cache.retention-ticks", 600),
+                20, 12_000, "raycast.cache.retention-ticks");
+        int decisionTicks = bounded(config.getInt("raycast.cache.decision-ticks", 20),
+                1, 100, "raycast.cache.decision-ticks");
         TransparentBlockMode transparentMode = TransparentBlockMode.parse(
                 config.getString("raycast.transparent-block-mode", "pass-through"));
         List<String> transparentMaterials = stringListOrDefault(
@@ -125,6 +137,7 @@ public record FoggyConfig(
                 fallbackFov, fovMargin, aspect, thirdDistance, cameraSamples, sourceMargin,
                 config.getBoolean("camera.include-front-third-person", true),
                 config.getBoolean("camera.include-back-third-person", true), interpolation, epsilon,
+                validationTicks, retentionTicks, decisionTicks,
                 transparentMode, transparentMaterials, cutoutMode, cutoutMaterials, opaqueOverrides,
                 config.getBoolean("invisibility.potion-effect", true),
                 config.getBoolean("invisibility.entity-invisible-flag", true),

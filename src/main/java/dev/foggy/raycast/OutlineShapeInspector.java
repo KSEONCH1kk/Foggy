@@ -15,7 +15,7 @@ import org.bukkit.util.BoundingBox;
  * <p>Paper does not expose OUTLINE sub-box enumeration in its public API. Reflection is isolated
  * here and never participates in the visibility decision. If a future Paper mapping changes, the
  * inspector falls back to public collision sub-boxes or the outline envelope while the production
- * ray remains exact through {@code World#rayTraceBlocks}.</p>
+ * ray remains exact through {@link CompensatedWorld}.</p>
  */
 final class OutlineShapeInspector {
     private volatile Accessors accessors;

@@ -48,8 +48,7 @@ public final class VisibilityEngine {
     private final InvisibilityTracker invisibilityTracker;
     private final PacketVisibilityController packetController;
     private final TargetPointSampler targetPointSampler;
-    private final ConcurrentSnapshotIndex spatialIndex;
-    private final ConcurrentMap<UUID, PlayerVisibilitySnapshot> snapshots = new ConcurrentHashMap<>();
+    private final CompensatedEntities compensatedEntities;
     private final ConcurrentMap<UUID, ConcurrentMap<UUID, PairVisibilityState>> viewerStates =
             new ConcurrentHashMap<>();
     private final ConcurrentMap<UUID, TaskRegistration> tasks = new ConcurrentHashMap<>();
@@ -76,7 +75,7 @@ public final class VisibilityEngine {
         this.invisibilityTracker = invisibilityTracker;
         this.packetController = packetController;
         this.targetPointSampler = targetPointSampler;
-        this.spatialIndex = new ConcurrentSnapshotIndex(config.spatialCellSize());
+        this.compensatedEntities = new CompensatedEntities(config.spatialCellSize());
     }
 
     /**
@@ -161,7 +160,7 @@ public final class VisibilityEngine {
      * @return snapshot, or null before first capture/after retirement
      */
     public PlayerVisibilitySnapshot snapshot(UUID playerId) {
-        return snapshots.get(playerId);
+        return compensatedEntities.snapshot(playerId);
     }
 
     /**
@@ -170,7 +169,7 @@ public final class VisibilityEngine {
      * @return current published snapshots
      */
     public List<PlayerVisibilitySnapshot> snapshots() {
-        return List.copyOf(snapshots.values());
+        return compensatedEntities.snapshots();
     }
 
     /**
@@ -200,8 +199,7 @@ public final class VisibilityEngine {
         if (task != null) {
             task.cancel();
         }
-        PlayerVisibilitySnapshot removed = snapshots.remove(playerId);
-        spatialIndex.remove(playerId);
+        PlayerVisibilitySnapshot removed = compensatedEntities.remove(playerId);
         viewerStates.remove(playerId);
         for (Map<UUID, PairVisibilityState> states : viewerStates.values()) {
             states.remove(playerId);
@@ -222,8 +220,7 @@ public final class VisibilityEngine {
             task.cancel();
         }
         tasks.clear();
-        snapshots.clear();
-        spatialIndex.clear();
+        compensatedEntities.clear();
         viewerStates.clear();
         if (clearPacketState) {
             packetController.clear();
@@ -235,8 +232,7 @@ public final class VisibilityEngine {
             return;
         }
         PlayerVisibilitySnapshot viewerSnapshot = capture(viewer);
-        snapshots.put(viewerSnapshot.playerId(), viewerSnapshot);
-        spatialIndex.publish(viewerSnapshot);
+        compensatedEntities.publish(viewerSnapshot);
         processViewer(viewer, viewerSnapshot);
         viewerTickHook.accept(viewer);
     }
@@ -246,7 +242,7 @@ public final class VisibilityEngine {
         Vector current = location.toVector();
         UUID playerId = player.getUniqueId();
         UUID worldId = location.getWorld().getUID();
-        PlayerVisibilitySnapshot previous = snapshots.get(playerId);
+        PlayerVisibilitySnapshot previous = compensatedEntities.snapshot(playerId);
         Vector previousPosition = previous != null
                 && previous.worldId().equals(worldId)
                 && previous.entityId() == player.getEntityId()
@@ -270,7 +266,7 @@ public final class VisibilityEngine {
         Set<UUID> seen = new HashSet<>();
         List<CameraPose> cameras = null;
         long now = System.nanoTime();
-        for (PlayerVisibilitySnapshot target : spatialIndex.nearby(
+        for (PlayerVisibilitySnapshot target : compensatedEntities.nearby(
                 viewerSnapshot, config.visibilityRadius())) {
             if (target.playerId().equals(viewerSnapshot.playerId())
                     || !target.worldId().equals(viewerSnapshot.worldId())
@@ -313,7 +309,7 @@ public final class VisibilityEngine {
         if (invisibility.removesEntity()) {
             return HideReason.INVISIBLE;
         }
-        OpticalResult optical = raycastService.evaluate(target, cameras);
+        OpticalResult optical = raycastService.evaluate(viewerSnapshot, target, cameras);
         return switch (optical) {
             case VISIBLE, REGION_UNOWNED -> HideReason.NONE;
             case OCCLUDED -> HideReason.OCCLUDED;
@@ -327,7 +323,7 @@ public final class VisibilityEngine {
             if (seen.contains(entry.getKey()) || !states.remove(entry.getKey(), entry.getValue())) {
                 continue;
             }
-            PlayerVisibilitySnapshot target = snapshots.get(entry.getKey());
+            PlayerVisibilitySnapshot target = compensatedEntities.snapshot(entry.getKey());
             if (entry.getValue().hidden() && target != null) {
                 packetController.show(viewer, target);
             }
@@ -338,8 +334,7 @@ public final class VisibilityEngine {
         if (!tasks.remove(playerId, registration)) {
             return;
         }
-        PlayerVisibilitySnapshot removed = snapshots.remove(playerId);
-        spatialIndex.remove(playerId);
+        PlayerVisibilitySnapshot removed = compensatedEntities.remove(playerId);
         viewerStates.remove(playerId);
         for (Map<UUID, PairVisibilityState> states : viewerStates.values()) {
             states.remove(playerId);

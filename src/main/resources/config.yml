@@ -26,6 +26,16 @@ raycast:
   # Samples previous/current client-interpolation positions. 3 means t=0, .5, 1.
   interpolation-samples: 3
   endpoint-epsilon: 0.0001
+  cache:
+    # Block state/shape is invalidated immediately by vanilla Bukkit block events. This periodic
+    # validation also catches direct WorldEdit/NMS/plugin writes that bypass those events.
+    validation-ticks: 20
+    # Sparse compensated chunk sections not crossed by a ray for this long are evicted.
+    retention-ticks: 600
+    # Reuse an optical result while viewer/target/cameras and world revision are unchanged.
+    # Movement, view rotation and block events invalidate it immediately; 20 only bounds direct
+    # NMS/plugin edits that bypass every block event.
+    decision-ticks: 20
   # Visibility uses Minecraft 1.21.4 ClipContext.Block.OUTLINE. This includes every
   # state-dependent VoxelShape sub-box (stairs, slabs, fences, walls, signs, ladders, etc.).
   # "pass-through" still intersects these shapes, but listed translucent materials do not

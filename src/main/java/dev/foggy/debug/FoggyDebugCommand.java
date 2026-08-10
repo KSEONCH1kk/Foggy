@@ -8,7 +8,7 @@ import dev.foggy.invisibility.InvisibilityTracker;
 import dev.foggy.packet.PacketDebugState;
 import dev.foggy.packet.PacketVisibilityController;
 import dev.foggy.raycast.BlockGeometryHit;
-import dev.foggy.raycast.BukkitRaycastService;
+import dev.foggy.raycast.CompensatedRaycastService;
 import dev.foggy.raycast.OpticalResult;
 import dev.foggy.raycast.RayDebugLine;
 import dev.foggy.raycast.RaycastDebugSnapshot;
@@ -54,7 +54,7 @@ public final class FoggyDebugCommand implements CommandExecutor, TabCompleter {
 
     private final FoggyPlugin plugin;
     private final CameraEstimator cameraEstimator;
-    private final BukkitRaycastService raycastService;
+    private final CompensatedRaycastService raycastService;
     private final InvisibilityTracker invisibilityTracker;
     private final VisibilityEngine visibilityEngine;
     private final PacketVisibilityController packetController;
@@ -71,7 +71,8 @@ public final class FoggyDebugCommand implements CommandExecutor, TabCompleter {
      * @param visibilityEngine engine state source
      * @param packetController packet state source
      */
-    public FoggyDebugCommand(FoggyPlugin plugin, CameraEstimator cameraEstimator, BukkitRaycastService raycastService,
+    public FoggyDebugCommand(FoggyPlugin plugin, CameraEstimator cameraEstimator,
+                             CompensatedRaycastService raycastService,
                              InvisibilityTracker invisibilityTracker, VisibilityEngine visibilityEngine,
                              PacketVisibilityController packetController) {
         this.plugin = plugin;
@@ -284,6 +285,12 @@ public final class FoggyDebugCommand implements CommandExecutor, TabCompleter {
         line(viewer, "packet[hiddenId=" + packet.hiddenId() + ", observedTracked=" + packet.observedTracked()
                 + ", clientKnown=" + packet.clientKnown() + ", paperTracked=" + packet.paperTracked() + "]",
                 NamedTextColor.GRAY);
+        CompensatedRaycastService.CacheStats cache = raycastService.cacheStats();
+        line(viewer, "cache[pairHit=" + cache.decisionHits() + ", pairMiss=" + cache.decisionMisses()
+                + ", pairs=" + cache.decisionEntries() + ", cells=" + cache.world().cells()
+                + ", cellHit=" + cache.world().cellHits() + ", refresh=" + cache.world().cellRefreshes()
+                + ", fallback=" + cache.world().fallbackTraces() + "]",
+                cache.world().bridgeUnavailable() ? NamedTextColor.RED : NamedTextColor.DARK_GREEN);
         RayDebugLine geometryRay = firstGeometryRay(optical);
         if (geometryRay != null && geometryRay.blockingBlock() != null) {
             BlockGeometryHit hit = geometryRay.blockingBlock();

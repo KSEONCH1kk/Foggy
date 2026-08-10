@@ -9,7 +9,9 @@ import dev.foggy.invisibility.InvisibilityTracker;
 import dev.foggy.listener.FoggyListener;
 import dev.foggy.packet.FoggyPacketListener;
 import dev.foggy.packet.PacketVisibilityController;
-import dev.foggy.raycast.BukkitRaycastService;
+import dev.foggy.raycast.CompensatedRaycastService;
+import dev.foggy.raycast.CompensatedWorld;
+import dev.foggy.raycast.CompensatedWorldListener;
 import dev.foggy.raycast.TargetPointSampler;
 import dev.foggy.raycast.VanillaBlockRaycaster;
 import dev.foggy.visibility.VisibilityEngine;
@@ -27,6 +29,8 @@ public final class FoggyPlugin extends JavaPlugin {
     private CompanionCameraRegistry companion;
     private FoggyDebugCommand debugCommand;
     private FoggyListener bukkitListener;
+    private CompensatedWorldListener compensatedWorldListener;
+    private CompensatedWorld compensatedWorld;
     private String companionChannel;
     private FoggyConfig activeSettings;
 
@@ -127,9 +131,10 @@ public final class FoggyPlugin extends JavaPlugin {
         if (packetController == null) {
             packetController = new PacketVisibilityController(this, getLogger());
         }
-        VanillaBlockRaycaster blockRaycaster = new VanillaBlockRaycaster(settings);
+        compensatedWorld = new CompensatedWorld(settings, getLogger());
+        VanillaBlockRaycaster blockRaycaster = new VanillaBlockRaycaster(settings, compensatedWorld);
         CameraEstimator cameraEstimator = new CameraEstimator(settings, companion, blockRaycaster);
-        BukkitRaycastService raycastService = new BukkitRaycastService(settings, blockRaycaster);
+        CompensatedRaycastService raycastService = new CompensatedRaycastService(settings, blockRaycaster);
         InvisibilityTracker invisibilityTracker = new InvisibilityTracker(settings, getLogger());
         visibilityEngine = new VisibilityEngine(
                 this,
@@ -156,6 +161,8 @@ public final class FoggyPlugin extends JavaPlugin {
         }
         bukkitListener = new FoggyListener(visibilityEngine, companion, debugCommand);
         getServer().getPluginManager().registerEvents(bukkitListener, this);
+        compensatedWorldListener = new CompensatedWorldListener(compensatedWorld);
+        getServer().getPluginManager().registerEvents(compensatedWorldListener, this);
         visibilityEngine.start(getServer().getOnlinePlayers());
         activeSettings = settings;
     }
@@ -164,6 +171,10 @@ public final class FoggyPlugin extends JavaPlugin {
         if (bukkitListener != null) {
             HandlerList.unregisterAll(bukkitListener);
             bukkitListener = null;
+        }
+        if (compensatedWorldListener != null) {
+            HandlerList.unregisterAll(compensatedWorldListener);
+            compensatedWorldListener = null;
         }
         if (visibilityEngine != null) {
             visibilityEngine.shutdown(!preservePacketState);
@@ -191,6 +202,10 @@ public final class FoggyPlugin extends JavaPlugin {
             getServer().getMessenger().unregisterIncomingPluginChannel(this, companionChannel);
             getServer().getMessenger().unregisterOutgoingPluginChannel(this, companionChannel);
             companionChannel = null;
+        }
+        if (compensatedWorld != null) {
+            compensatedWorld.clear();
+            compensatedWorld = null;
         }
     }
 

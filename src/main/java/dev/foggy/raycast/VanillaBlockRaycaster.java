@@ -1,9 +1,7 @@
 package dev.foggy.raycast;
 
 import dev.foggy.config.FoggyConfig;
-import io.papermc.paper.math.Position;
-import org.bukkit.Bukkit;
-import org.bukkit.FluidCollisionMode;
+import java.util.UUID;
 import org.bukkit.World;
 import org.bukkit.block.Block;
 import org.bukkit.util.BoundingBox;
@@ -12,25 +10,28 @@ import org.bukkit.util.Vector;
 import org.jetbrains.annotations.Nullable;
 
 /**
- * Accesses Paper 1.21.4's direct bridge to Minecraft's grid traversal and {@code VoxelShape.clip}.
+ * Facade over the cached, allocation-light Minecraft 1.21.4 voxel traversal.
  *
- * <p>Visibility rays deliberately request {@code ignorePassableBlocks=false}. CraftWorld maps that
- * flag to Mojang {@code ClipContext.Block.OUTLINE}, so the current block state's complete outline
- * shape is used: every stair section, slab half, fence arm, wall post, sign plate, ladder plane and
- * other sub-box participates. A Paper block predicate removes only materials configured as
- * optically transparent; this preserves the original NMS traversal and shape math.</p>
+ * <p>{@link CompensatedWorld} mirrors Mojang {@code BlockGetter#traverseBlocks} and
+ * {@code VoxelShape#clip}, but resolves a block state's OUTLINE/COLLIDER sub-boxes only on a cold
+ * cache entry. Hot rays traverse primitive cached boxes without calling
+ * {@code CraftWorld#rayTraceBlocks}. Configured optical pass-through is applied after the exact
+ * state-dependent geometry has been resolved.</p>
  */
 public final class VanillaBlockRaycaster {
     private final BlockTransparencyPolicy transparencyPolicy;
     private final OutlineShapeInspector outlineShapeInspector = new OutlineShapeInspector();
+    private final CompensatedWorld compensatedWorld;
 
     /**
      * Creates the vanilla-shape bridge.
      *
      * @param config geometry/transparency settings
+     * @param compensatedWorld shared sparse world/shape snapshot
      */
-    public VanillaBlockRaycaster(FoggyConfig config) {
+    public VanillaBlockRaycaster(FoggyConfig config, CompensatedWorld compensatedWorld) {
         transparencyPolicy = new BlockTransparencyPolicy(config);
+        this.compensatedWorld = compensatedWorld;
     }
 
     /**
@@ -43,7 +44,19 @@ public final class VanillaBlockRaycaster {
      * @return first blocking hit, or null
      */
     public @Nullable RayTraceResult traceOcclusion(World world, Vector from, Vector to) {
-        return traceOutline(world, from, to, transparencyPolicy.blockingPredicate());
+        return compensatedWorld.traceOcclusion(world, from, to);
+    }
+
+    /**
+     * Allocation-free production equivalent of {@code traceOcclusion(...) != null}.
+     *
+     * @param world ray world
+     * @param from segment start
+     * @param to segment end
+     * @return whether optically blocking OUTLINE geometry intersects the segment
+     */
+    public boolean occludes(World world, Vector from, Vector to) {
+        return compensatedWorld.occludes(world, from, to);
     }
 
     /**
@@ -56,7 +69,7 @@ public final class VanillaBlockRaycaster {
      * @return first outline hit, or null
      */
     public @Nullable RayTraceResult traceAnyOutline(World world, Vector from, Vector to) {
-        return traceOutline(world, from, to, ignored -> true);
+        return compensatedWorld.traceAnyOutline(world, from, to);
     }
 
     /**
@@ -68,13 +81,7 @@ public final class VanillaBlockRaycaster {
      * @return first collision hit, or null
      */
     public @Nullable RayTraceResult traceCollision(World world, Vector from, Vector to) {
-        Vector delta = to.clone().subtract(from);
-        double distance = delta.length();
-        if (distance <= 1.0E-12) {
-            return null;
-        }
-        return world.rayTraceBlocks(from.toLocation(world), delta.multiply(1.0 / distance), distance,
-                FluidCollisionMode.NEVER, true);
+        return compensatedWorld.traceCollision(world, from, to);
     }
 
     /**
@@ -86,11 +93,21 @@ public final class VanillaBlockRaycaster {
      * @return whether world access for the complete segment is legal on the current thread
      */
     public boolean ownsTrace(World world, Vector from, Vector to) {
-        int minChunkX = Math.min(blockToChunk(from.getX()), blockToChunk(to.getX()));
-        int maxChunkX = Math.max(blockToChunk(from.getX()), blockToChunk(to.getX()));
-        int minChunkZ = Math.min(blockToChunk(from.getZ()), blockToChunk(to.getZ()));
-        int maxChunkZ = Math.max(blockToChunk(from.getZ()), blockToChunk(to.getZ()));
-        return Bukkit.isOwnedByCurrentRegion(world, minChunkX, minChunkZ, maxChunkX, maxChunkZ);
+        return compensatedWorld.ownsTrace(world, from, to);
+    }
+
+    /**
+     * Allocation-free variant used by the pair camera/target envelope.
+     *
+     * @param world ray world
+     * @param fromX segment start X
+     * @param fromZ segment start Z
+     * @param toX segment end X
+     * @param toZ segment end Z
+     * @return whether the current region owns the complete rectangle
+     */
+    public boolean ownsTrace(World world, double fromX, double fromZ, double toX, double toZ) {
+        return compensatedWorld.ownsTrace(world, fromX, fromZ, toX, toZ);
     }
 
     /**
@@ -117,19 +134,22 @@ public final class VanillaBlockRaycaster {
                 transparencyPolicy.mode(block.getType()));
     }
 
-    private static @Nullable RayTraceResult traceOutline(
-            World world, Vector from, Vector to, java.util.function.Predicate<? super Block> predicate) {
-        Vector delta = to.clone().subtract(from);
-        double distance = delta.length();
-        if (distance <= 1.0E-12) {
-            return null;
-        }
-        Position start = from.toLocation(world);
-        return world.rayTraceBlocks(start, delta.multiply(1.0 / distance), distance,
-                FluidCollisionMode.NEVER, false, predicate);
+    /**
+     * Returns the shared cache diagnostics used by live debug.
+     *
+     * @return current compensated-world counters
+     */
+    public CompensatedWorld.CacheStats cacheStats() {
+        return compensatedWorld.stats();
     }
 
-    private static int blockToChunk(double coordinate) {
-        return ((int) Math.floor(coordinate)) >> 4;
+    /**
+     * Returns the invalidation revision for pair-level decision memoization.
+     *
+     * @param worldId world UUID
+     * @return current world revision
+     */
+    public long worldRevision(UUID worldId) {
+        return compensatedWorld.revision(worldId);
     }
 }

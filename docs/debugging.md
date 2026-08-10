@@ -43,6 +43,9 @@ Debug работает от лица наблюдателя: войдите те
 | `observedTracked` | Foggy видел обычный server spawn этого id |
 | `clientKnown` | По состоянию Foggy сущность сейчас существует на клиенте |
 | `paperTracked` | Paper entity tracker включает viewer для этой цели |
+| `cache.pairHit/pairMiss` | Попадания/промахи кэша неизменившегося optical-решения пары |
+| `cache.cells/cellHit/refresh` | Число sparse block cells, повторных чтений и холодных/validation обновлений |
+| `cache.fallback` | Должно быть `0`; больше нуля означает fallback на Bukkit ray из-за несовместимого NMS bridge |
 
 Для полностью скрытой стеной цели ожидается:
 

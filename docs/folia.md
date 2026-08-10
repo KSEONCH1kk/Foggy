@@ -1,6 +1,6 @@
 # Folia compatibility
 
-Foggy 1.1.0 supports both Paper and Folia 1.21.4 and declares `folia-supported: true` in
+Foggy 1.2.0 supports both Paper and Folia 1.21.4 and declares `folia-supported: true` in
 `plugin.yml`. The flag only allows Folia to load the plugin; compatibility comes from the scheduler
 and ownership rules below.
 
@@ -19,8 +19,12 @@ Primary references:
   permissions and vanish state.
 - It publishes a defensive `PlayerVisibilitySnapshot` to concurrent per-world X/Z cells. Other
   region threads consume only copied coordinates, hitbox samples, UUIDs, ids and booleans.
+- Those snapshots and cells are owned by `CompensatedEntities`; it never dereferences a foreign
+  entity to answer a nearby query.
 - World rays execute only after `Bukkit.isOwnedByCurrentRegion(world, minChunkX, minChunkZ,
   maxChunkX, maxChunkZ)` proves ownership of the whole corridor.
+- One ownership check covers the complete camera/target envelope. `CompensatedWorld` then reads
+  only loaded owned chunks and reuses immutable primitive VoxelShape geometry across rays.
 - Synthetic show data is captured on the target's entity scheduler, then sent on the viewer's
   entity scheduler. Hides and same-region shows are sent directly from the viewer-owned task.
 - `/foggy reload` validates and swaps global service state on `GlobalRegionScheduler`; a player's

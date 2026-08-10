@@ -9,9 +9,11 @@ public interface RaycastService {
     /**
      * Computes whether any sampled target point is in a plausible FOV and unobstructed.
      *
+     * @param viewer immutable viewer snapshot captured by its owning region
      * @param target immutable target snapshot captured by its owning region
      * @param cameras plausible viewer cameras
      * @return optical visibility result
      */
-    OpticalResult evaluate(PlayerVisibilitySnapshot target, List<CameraPose> cameras);
+    OpticalResult evaluate(PlayerVisibilitySnapshot viewer, PlayerVisibilitySnapshot target,
+                           List<CameraPose> cameras);
 }

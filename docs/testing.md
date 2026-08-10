@@ -10,6 +10,9 @@
 - lower slab: low ray blocked, high ray clear;
 - multi-box stair: both occupied sections block while the missing upper quarter stays open;
 - thin ladder/sign planes and transparent-shape pass-through before a later opaque blocker;
+- Mojang `VoxelShape#clip` entering-face, `1e-7`, inside-hit and endpoint semantics;
+- 20,000 deterministic rays proving the allocation-free boolean hot path equals detailed clip;
+- Mojang `BlockGetter#traverseBlocks` diagonal tie order, negative floor and zero-length behavior;
 - official 1.21.4 cutout catalog load/count and opaque-base exclusions;
 - vertical-FOV tangent and aspect-ratio conversion;
 - hide-only debounce, immediate show and immediate hard vanish/spectator hide;
@@ -61,7 +64,9 @@ reach `Done`, accept `/foggy reload`, and shut down without Foggy, PacketEvents 
 exceptions. This verifies metadata, dependency order, remapping, scheduler linkage and basic
 runtime behavior; it is not a substitute for the two-client visual matrix above.
 
-The Folia smoke additionally connected two protocol-769 clients. It observed ordinary potion
+The Folia smoke additionally connected two protocol-769 clients. It initializes the compensated
+NMS shape bridge, places/removes a solid wall and observes directed destroy followed by the complete
+spawn snapshot without invoking the guarded Bukkit fallback. It also observed ordinary potion
 invisibility preserve the target entity/equipment/effect, spectator emit a directed destroy,
 survival emit the complete spawn snapshot, reload preserve an already hidden id, and death/respawn
 rebind the entity task. The final log contained no ownership, tick-thread or plugin exception.

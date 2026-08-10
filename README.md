@@ -14,14 +14,17 @@ restored through PacketEvents packets for one viewer at a time.
 - restores visibility without show-side debounce by sending `SpawnEntity` plus current metadata,
   scale, equipment, potion effects, head rotation, velocity and passenger state in one flush;
 - models partial-tick target motion using previous/current hitboxes;
-- uses an O(n) spatial grid and sends packets only when a cached pair changes state;
+- uses `CompensatedEntities`, an O(n) spatial grid, and sends packets only when a cached pair
+  changes state;
+- uses a sparse `CompensatedWorld`: Mojang-equivalent DDA and exact cached OUTLINE/COLLIDER boxes,
+  with no `CraftWorld#rayTraceBlocks` call on the normal hot path;
 - accepts optional F5/FOV/camera-offset telemetry on `foggy:camera`.
 
 ## Installation
 
 1. Run Paper or Folia 1.21.4 on Java 21.
 2. Install the standalone PacketEvents 2.13.0 Spigot plugin.
-3. Copy `Foggy-1.1.0.jar` to `plugins/`.
+3. Copy `Foggy-1.2.0.jar` to `plugins/`.
 4. Start once, edit `plugins/Foggy/config.yml`, then run `/foggy reload` or restart.
 
 PacketEvents is a hard dependency (`depend: [packetevents]`). Foggy declares
@@ -37,14 +40,14 @@ model and conservative cross-region ray fallback.
 ./gradlew loadTest
 ```
 
-The distributable is `build/libs/Foggy-1.1.0.jar`. PacketEvents and Paper are `compileOnly` and are
+The distributable is `build/libs/Foggy-1.2.0.jar`. PacketEvents and Paper are `compileOnly` and are
 not shaded into it.
 
 ## Configuration
 
 All important tradeoffs are in [`config.yml`](src/main/resources/config.yml): radius, spatial cell,
-fallback FOV, F5 distance/source margin, interpolation samples, transparent/cutout policy and hide
-confirmation ticks.
+fallback FOV, F5 distance/source margin, interpolation samples, compensated-world validation and
+retention, pair-decision cache, transparent/cutout policy and hide confirmation ticks.
 `hide-confirmation-ticks: 1` is the no-delay default. Increasing it affects hiding only; the first
 visible result always sends the spawn snapshot immediately.
 
@@ -96,12 +99,15 @@ region tick in which Foggy samples the state. A cross-region show needs a target
 then a viewer-owned send, so scheduler hand-off can add a region tick. Network latency, client
 packet processing and render frames remain outside the server's control.
 
-Foggy uses Paper's filtered `World#rayTraceBlocks` overload with
-`ignorePassableBlocks=false`. In Paper 1.21.4 this maps directly to Minecraft
-`ClipContext.Block.OUTLINE`, grid traversal and `VoxelShape.clip`. The complete shape of the current
-block state is tested, including every sub-box of oriented stairs, top/bottom/double slabs, fences,
-walls, panes, signs, ladders, trapdoors, doors and other non-full blocks. It is not reduced to
-`Block#getBoundingBox()` or a full cube.
+Foggy 1.2.0 no longer invokes Paper's `World#rayTraceBlocks` for normal rays. `CompensatedWorld`
+copies the exact 1.21.4 `BlockGetter#traverseBlocks` boundary math and `VoxelShape#clip` hit math.
+On a cold cell it reads the canonical NMS block-state identity and extracts that state's complete
+OUTLINE/COLLIDER `VoxelShape.toAabbs()` list; subsequent rays use compact primitive boxes. This
+includes every sub-box of oriented stairs, top/bottom/double slabs, fences, walls, panes, signs,
+ladders, trapdoors, doors and other non-full blocks. It is not reduced to
+`Block#getBoundingBox()` or a full cube. Bukkit block events invalidate affected cells immediately,
+and periodic identity validation covers direct plugin/NMS writes. The Bukkit ray is retained only
+as a guarded compatibility fallback if the 1.21.4 runtime shape bridge cannot initialize.
 
 Optical transparency is independent of geometry. By default glass, stained/tinted glass, panes,
 ice, leaves and portals do not terminate visibility rays. Foggy also bundles the 280 relevant

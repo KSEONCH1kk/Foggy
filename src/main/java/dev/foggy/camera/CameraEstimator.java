@@ -88,9 +88,12 @@ public final class CameraEstimator {
     private void addThirdPersonSamples(List<CameraPose> output, World world, Vector eye, Basis lookBasis,
                                        Vector offsetDirection, double maxDistance, float fov, boolean exact,
                                        String source) {
+        Vector direction = offsetDirection.clone().normalize();
+        Vector clippedMaximum = clippedPosition(world, eye, direction, maxDistance);
+        double allowedDistance = clippedMaximum.distance(eye);
         for (int i = 1; i <= config.cameraDistanceSamples(); i++) {
-            double requested = maxDistance * i / config.cameraDistanceSamples();
-            Vector position = clippedPosition(world, eye, offsetDirection, requested);
+            double requested = allowedDistance * i / config.cameraDistanceSamples();
+            Vector position = eye.clone().add(direction.clone().multiply(requested));
             output.addAll(expanded(world, source + "#" + i, position, lookBasis,
                     fov, config.fallbackAspectRatio(), exact));
         }
